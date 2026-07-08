@@ -1,12 +1,8 @@
-import axios, {
-  AxiosError,
-  AxiosInstance,
-  InternalAxiosRequestConfig,
-} from "axios";
+import axios from "axios";
 
 const API_URL = "/api/v1";
 
-const api: AxiosInstance = axios.create({
+export const api = axios.create({
   baseURL: API_URL,
   timeout: 30000,
   headers: {
@@ -14,34 +10,34 @@ const api: AxiosInstance = axios.create({
   },
 });
 
-api.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem("vf_access");
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("vf_access");
 
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
 
-    return config;
-  },
-  (error: AxiosError) => Promise.reject(error)
-);
+  return config;
+});
 
 api.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
+  (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem("vf_access");
-      localStorage.removeItem("vf_refresh");
+      clearTokens();
     }
 
     return Promise.reject(error);
   }
 );
 
-export function saveTokens(access: string, refresh: string): void {
+export function setTokens(access: string, refresh: string): void {
   localStorage.setItem("vf_access", access);
   localStorage.setItem("vf_refresh", refresh);
+}
+
+export function saveTokens(access: string, refresh: string): void {
+  setTokens(access, refresh);
 }
 
 export function clearTokens(): void {
