@@ -33,7 +33,7 @@ export const useAuth = create<AuthState>((set) => ({
   async login(email, password) {
     const normalizedEmail = email.trim().toLowerCase();
 
-    if (normalizedEmail !== 'admin' || password !== '123456') {
+    if (normalizedEmail !== 'admin@viralforge.ai' || password !== '123456') {
       throw new Error('Usuário ou senha inválidos.');
     }
 
