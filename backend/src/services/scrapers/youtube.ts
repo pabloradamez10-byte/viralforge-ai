@@ -17,8 +17,17 @@ export class YouTubeSource implements TrendSource {
       limit?: number;
     },
   ): Promise<RawTrendItem[]> {
-    if (!env.YOUTUBE_API_KEY?.trim()) {
+    const apiKey = env.YOUTUBE_API_KEY.trim();
+
+    if (!apiKey) {
       console.error('❌ YOUTUBE_API_KEY não configurada.');
+      return [];
+    }
+
+    const normalizedQuery = query.trim();
+
+    if (!normalizedQuery) {
+      console.warn('⚠️ Busca do YouTube ignorada: consulta vazia.');
       return [];
     }
 
@@ -27,101 +36,155 @@ export class YouTubeSource implements TrendSource {
       50,
     );
 
-    const rawRegion = options?.region?.trim().toUpperCase() ?? '';
-    const rawLanguage = options?.language?.trim().toLowerCase() ?? '';
+    const rawRegion =
+      options?.region?.trim().toUpperCase() ?? '';
+
+    const rawLanguage =
+      options?.language?.trim().toLowerCase() ?? '';
 
     /*
-     * O YouTube aceita regionCode com exatamente duas letras.
-     * Valores como "global", "Brasil" ou "pt-BR" não são válidos.
+     * regionCode aceita códigos ISO 3166-1 alfa-2,
+     * como BR, US, PT e GB.
+     *
+     * Valores como "global", "Brasil" e "pt-BR"
+     * não devem ser enviados como região.
      */
-    const region =
-      /^[A-Z]{2}$/.test(rawRegion) ? rawRegion : undefined;
+    const region: string | undefined =
+      /^[A-Z]{2}$/.test(rawRegion)
+        ? rawRegion
+        : undefined;
 
     /*
-     * relevanceLanguage usa código de idioma.
-     * Converte "pt-BR" para "pt".
+     * relevanceLanguage aceita um código de idioma.
+     * Exemplos:
+     * "pt-BR" vira "pt"
+     * "en-US" vira "en"
      */
-    const languagePart = rawLanguage.split('-')[0];
-    const language =
+    const languagePart =
+      rawLanguage.split('-')[0] ?? '';
+
+    const language: string | undefined =
       /^[a-z]{2,3}$/.test(languagePart)
         ? languagePart
         : undefined;
 
+    const publishedAfter = new Date(
+      Date.now() - 7 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+
     const params: Record<string, string | number> = {
-      key: env.YOUTUBE_API_KEY.trim(),
+      key: apiKey,
       part: 'snippet',
-      q: query.trim(),
+      q: normalizedQuery,
       type: 'video',
       order: 'viewCount',
       maxResults: limit,
-      publishedAfter: new Date(
-        Date.now() - 7 * 24 * 60 * 60 * 1000,
-      ).toISOString(),
+      publishedAfter,
     };
 
     /*
-     * Só envia esses parâmetros quando forem válidos.
-     * Assim "global" não quebra a chamada.
+     * Esses parâmetros somente são enviados
+     * quando forem válidos.
      */
-    if (region) {
+    if (region !== undefined) {
       params.regionCode = region;
     }
 
-    if (language) {
+    if (language !== undefined) {
       params.relevanceLanguage = language;
     }
 
     console.log('YouTube request:', {
-      query: query.trim(),
-      regionReceived: options?.region,
+      query: normalizedQuery,
+      regionReceived: options?.region ?? null,
       regionSent: region ?? 'omitted',
-      languageReceived: options?.language,
+      languageReceived: options?.language ?? null,
       languageSent: language ?? 'omitted',
       limit,
     });
 
     try {
-      const { data } = await axios.get(
+      const response = await axios.get(
         'https://www.googleapis.com/youtube/v3/search',
         {
           params,
-          timeout: 15000,
+          timeout: 15_000,
         },
       );
 
-      const items: any[] = Array.isArray(data?.items)
+      const data = response.data as {
+        items?: Array<{
+          id?: {
+            videoId?: string;
+          };
+          snippet?: {
+            title?: string;
+            publishedAt?: string;
+            channelTitle?: string;
+            description?: string;
+            thumbnails?: unknown;
+          };
+        }>;
+      };
+
+      const items = Array.isArray(data.items)
         ? data.items
         : [];
 
-      console.log(`✅ YouTube retornou ${items.length} vídeos.`);
+      console.log(
+        `✅ YouTube retornou ${items.length} vídeos.`,
+      );
 
-      return items.map((item) => ({
-        externalId: item.id?.videoId,
-        title: item.snippet?.title ?? '',
-        url: item.id?.videoId
-          ? `https://www.youtube.com/watch?v=${item.id.videoId}`
-          : undefined,
-        publishedAt: item.snippet?.publishedAt
-          ? new Date(item.snippet.publishedAt)
-          : new Date(),
-        payload: {
-          channelTitle: item.snippet?.channelTitle,
-          description: item.snippet?.description,
-          thumbnails: item.snippet?.thumbnails,
-        },
-        region: region ?? 'GLOBAL',
-        language: language ?? 'en',
-      }));
-    } catch (error: any) {
-      console.error('❌ YouTube API ERROR', {
-        status: error?.response?.status,
-        message: error?.message,
-        response: error?.response?.data,
-        regionReceived: options?.region,
-        regionSent: region,
-        languageReceived: options?.language,
-        languageSent: language,
-      });
+      return items
+        .filter((item) => Boolean(item.id?.videoId))
+        .map((item): RawTrendItem => {
+          const videoId = item.id?.videoId as string;
+          const publishedAtValue =
+            item.snippet?.publishedAt;
+
+          const publishedAt =
+            publishedAtValue &&
+            !Number.isNaN(
+              new Date(publishedAtValue).getTime(),
+            )
+              ? new Date(publishedAtValue)
+              : new Date();
+
+          return {
+            externalId: videoId,
+            title: item.snippet?.title ?? '',
+            url: `https://www.youtube.com/watch?v=${videoId}`,
+            publishedAt,
+            payload: {
+              channelTitle:
+                item.snippet?.channelTitle ?? '',
+              description:
+                item.snippet?.description ?? '',
+              thumbnails:
+                item.snippet?.thumbnails ?? {},
+            },
+            region: region ?? 'GLOBAL',
+            language: language ?? 'en',
+          };
+        });
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error)) {
+        console.error('❌ YouTube API ERROR', {
+          status: error.response?.status,
+          message: error.message,
+          response: error.response?.data,
+          regionReceived: options?.region ?? null,
+          regionSent: region ?? null,
+          languageReceived:
+            options?.language ?? null,
+          languageSent: language ?? null,
+        });
+      } else {
+        console.error(
+          '❌ YouTube API ERROR desconhecido:',
+          error,
+        );
+      }
 
       return [];
     }
