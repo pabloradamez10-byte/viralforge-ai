@@ -169,16 +169,12 @@ export default function FacelessGenerator() {
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <Card>
-              <CardHeader title="Título" right={<CopyButton onCopy={() => copyText(script.title, 'Título')} />}>
-                <div />
-              </CardHeader>
+              <CardHeader title="Título" right={<CopyButton onCopy={() => copyText(script.title, 'Título')} />} />
               <div className="p-5 text-slate-100 font-semibold">{script.title}</div>
             </Card>
 
             <Card>
-              <CardHeader title="Hook (0-3s)" right={<CopyButton onCopy={() => copyText(script.hook, 'Hook')} />}>
-                <div />
-              </CardHeader>
+              <CardHeader title="Hook (0-3s)" right={<CopyButton onCopy={() => copyText(script.hook, 'Hook')} />} />
               <div className="p-5 text-slate-200">{script.hook}</div>
             </Card>
 
@@ -214,9 +210,7 @@ export default function FacelessGenerator() {
             </Card>
 
             <Card>
-              <CardHeader title="Legendas (SRT)" right={<CopyButton onCopy={() => copyText(script.captions, 'Legendas')} />}>
-                <div />
-              </CardHeader>
+              <CardHeader title="Legendas (SRT)" right={<CopyButton onCopy={() => copyText(script.captions, 'Legendas')} />} />
               <div className="p-5 max-h-72 overflow-auto text-xs text-slate-300 font-mono whitespace-pre">
                 {script.captions}
               </div>
