@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { clearTokens } from '@/lib/api';
+import { api, clearTokens, setTokens } from '@/lib/api';
 
 export interface User {
   id: string;
@@ -13,44 +13,87 @@ interface AuthState {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string) => Promise<void>;
+  register: (
+    email: string,
+    password: string,
+    name: string,
+  ) => Promise<void>;
   logout: () => Promise<void>;
   fetchMe: () => Promise<void>;
 }
-
-const TEST_USER: User = {
-  id: 'test-admin',
-  email: 'admin',
-  name: 'Administrador',
-  role: 'ADMIN',
-  plan: 'ENTERPRISE',
-};
 
 export const useAuth = create<AuthState>((set) => ({
   user: null,
   loading: true,
 
   async login(email, password) {
-    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedEmail = email.toLowerCase().trim();
 
-    if (normalizedEmail !== 'admin@viralforge.ai' || password !== '123456') {
-      throw new Error('Usuário ou senha inválidos.');
+    const response = await api.post('/auth/login', {
+      email: normalizedEmail,
+      password,
+    });
+
+    const result = response.data?.data ?? response.data;
+
+    const {
+      user,
+      accessToken,
+      refreshToken,
+    } = result;
+
+    if (!user || !accessToken || !refreshToken) {
+      throw new Error('O servidor não retornou os tokens de autenticação.');
     }
 
-    localStorage.setItem('vf_test_session', 'true');
+    setTokens(accessToken, refreshToken);
 
     set({
-      user: TEST_USER,
+      user,
       loading: false,
     });
   },
 
-  async register() {
-    throw new Error('Cadastro desativado temporariamente.');
+  async register(email, password, name) {
+    const response = await api.post('/auth/register', {
+      email: email.toLowerCase().trim(),
+      password,
+      name: name.trim(),
+    });
+
+    const result = response.data?.data ?? response.data;
+
+    const {
+      user,
+      accessToken,
+      refreshToken,
+    } = result;
+
+    if (!user || !accessToken || !refreshToken) {
+      throw new Error('O servidor não retornou os tokens de autenticação.');
+    }
+
+    setTokens(accessToken, refreshToken);
+
+    set({
+      user,
+      loading: false,
+    });
   },
 
   async logout() {
-    localStorage.removeItem('vf_test_session');
+    const refreshToken = localStorage.getItem('vf_refresh');
+
+    try {
+      if (refreshToken) {
+        await api.post('/auth/logout', {
+          refreshToken,
+        });
+      }
+    } catch {
+      // Limpa o acesso local mesmo que o backend esteja indisponível.
+    }
+
     clearTokens();
 
     set({
@@ -60,12 +103,32 @@ export const useAuth = create<AuthState>((set) => ({
   },
 
   async fetchMe() {
-    const hasTestSession =
-      localStorage.getItem('vf_test_session') === 'true';
+    const accessToken = localStorage.getItem('vf_access');
 
-    set({
-      user: hasTestSession ? TEST_USER : null,
-      loading: false,
-    });
+    if (!accessToken) {
+      set({
+        user: null,
+        loading: false,
+      });
+
+      return;
+    }
+
+    try {
+      const response = await api.get('/auth/me');
+      const user = response.data?.data ?? response.data;
+
+      set({
+        user,
+        loading: false,
+      });
+    } catch {
+      clearTokens();
+
+      set({
+        user: null,
+        loading: false,
+      });
+    }
   },
 }));
