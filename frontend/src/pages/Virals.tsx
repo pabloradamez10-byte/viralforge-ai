@@ -125,14 +125,14 @@ export default function Virals() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {list.data?.items?.map((v) => (
-          <ViralCard key={`${v.platform}:${v.externalId}`} video={v} />
+          <ViralCard key={`${v.platform}:${v.externalId}`} video={v} niche={niche} />
         ))}
       </div>
     </div>
   );
 }
 
-function ViralCard({ video }: { video: ScoredViralVideo }) {
+function ViralCard({ video, niche }: { video: ScoredViralVideo; niche: string }) {
   const platform = PLATFORM_LABEL[video.platform] ?? video.platform;
   const views = formatNumber(video.views);
   const published = new Date(video.publishedAt).toLocaleDateString('pt-BR');
