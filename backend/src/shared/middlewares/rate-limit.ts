@@ -3,10 +3,16 @@ import { RedisStore } from 'rate-limit-redis';
 import { redis } from '../../config/redis.js';
 import { env } from '../../config/env.js';
 
-const store = new RedisStore({
-  sendCommand: (...args: string[]) => redis.call(...args),
-  prefix: 'rl:',
-});
+const sendCommand = redis.call.bind(redis) as unknown as (
+  ...args: string[]
+) => Promise<any>;
+
+function createRedisStore(prefix: string): RedisStore {
+  return new RedisStore({
+    sendCommand,
+    prefix,
+  });
+}
 
 export const globalRateLimit = rateLimit({
   windowMs: env.RATE_LIMIT_WINDOW_MS,
@@ -15,7 +21,7 @@ export const globalRateLimit = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) =>
     req.userId ? `u:${req.userId}` : `ip:${req.ip ?? 'unknown'}`,
-  store,
+  store: createRedisStore('rl:global:'),
 });
 
 export const authRateLimit = rateLimit({
@@ -24,7 +30,7 @@ export const authRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => `ip:${req.ip ?? 'unknown'}`,
-  store,
+  store: createRedisStore('rl:auth:'),
   message: {
     error: {
       code: 'RATE_LIMITED',
