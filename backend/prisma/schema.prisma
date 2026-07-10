@@ -3,7 +3,8 @@
 // Convenções: UUIDs, timestamps UTC, enums explícitos.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -54,24 +55,24 @@ enum PlanStatus {
 // ─────────────────────────── User ───────────────────────────
 
 model User {
-  id            String   @id @default(uuid()) @db.Uuid
-  email         String   @unique
-  passwordHash  String   @map("password_hash")
-  name          String
-  avatarUrl     String?  @map("avatar_url")
-  role          UserRole @default(USER)
-  plan          UserPlan @default(FREE)
-  emailVerified Boolean  @default(false) @map("email_verified")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id              String   @id @default(uuid()) @db.Uuid
+  email           String   @unique
+  passwordHash    String   @map("password_hash")
+  name            String
+  avatarUrl       String?  @map("avatar_url")
+  role            UserRole @default(USER)
+  plan            UserPlan @default(FREE)
+  emailVerified   Boolean  @default(false) @map("email_verified")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
-  refreshTokens RefreshToken[]
-  projects      Project[]
-  searches      TrendSearch[]
-  insights      Insight[]
-  contentPlans  ContentPlan[]
-  apiKeys       UserApiKey[]
-  auditLogs     AuditLog[]
+  refreshTokens   RefreshToken[]
+  projects        Project[]
+  searches        TrendSearch[]
+  insights        Insight[]
+  contentPlans    ContentPlan[]
+  apiKeys         UserApiKey[]
+  auditLogs       AuditLog[]
   facelessScripts FacelessScript[]
 
   @@map("users")
@@ -106,10 +107,10 @@ model Project {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  searches     TrendSearch[]
-  contentPlans ContentPlan[]
-  insights     Insight[]
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  searches        TrendSearch[]
+  contentPlans    ContentPlan[]
+  insights        Insight[]
   facelessScripts FacelessScript[]
 
   @@index([userId])
@@ -128,8 +129,8 @@ model Source {
   config    Json       @default("{}")
   createdAt DateTime   @default(now()) @map("created_at")
 
-  records   TrendRecord[]
-  apiKeys   UserApiKey[]
+  records TrendRecord[]
+  apiKeys UserApiKey[]
 
   @@map("sources")
 }
@@ -158,12 +159,12 @@ model TrendSearch {
   filters   Json     @default("{}")
   createdAt DateTime @default(now()) @map("created_at")
 
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project       Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  records       TrendRecord[]
-  metrics       TrendMetric[]
-  insights      Insight[]
-  contentPlans  ContentPlan[]
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project      Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  records      TrendRecord[]
+  metrics      TrendMetric[]
+  insights     Insight[]
+  contentPlans ContentPlan[]
 
   @@index([userId, createdAt])
   @@index([query])
@@ -171,20 +172,20 @@ model TrendSearch {
 }
 
 model TrendRecord {
-  id           String   @id @default(uuid()) @db.Uuid
-  searchId     String   @map("search_id") @db.Uuid
-  sourceId     String   @map("source_id") @db.Uuid
-  categoryId   String?  @map("category_id") @db.Uuid
-  externalId   String?  @map("external_id")
-  title        String
-  url          String?
-  payload      Json     @default("{}")
-  collectedAt  DateTime @default(now()) @map("collected_at")
-  publishedAt  DateTime? @map("published_at")
+  id          String    @id @default(uuid()) @db.Uuid
+  searchId    String    @map("search_id") @db.Uuid
+  sourceId    String    @map("source_id") @db.Uuid
+  categoryId  String?   @map("category_id") @db.Uuid
+  externalId  String?   @map("external_id")
+  title       String
+  url         String?
+  payload     Json      @default("{}")
+  collectedAt DateTime  @default(now()) @map("collected_at")
+  publishedAt DateTime? @map("published_at")
 
-  search   TrendSearch   @relation(fields: [searchId], references: [id], onDelete: Cascade)
-  source   Source        @relation(fields: [sourceId], references: [id])
-  category Category?     @relation(fields: [categoryId], references: [id])
+  search   TrendSearch  @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  source   Source       @relation(fields: [sourceId], references: [id])
+  category Category?    @relation(fields: [categoryId], references: [id])
   metrics  TrendMetric[]
 
   @@index([sourceId, collectedAt(sort: Desc)])
@@ -194,22 +195,22 @@ model TrendRecord {
 }
 
 model TrendMetric {
-  id                String   @id @default(uuid()) @db.Uuid
-  recordId          String   @map("record_id") @db.Uuid
-  searchId          String   @map("search_id") @db.Uuid
-  volume            Int      @default(0)
-  growthPct         Int      @default(0) @map("growth_pct")
-  declinePct        Int      @default(0) @map("decline_pct")
-  competitionScore  Float    @default(0) @map("competition_score")
-  opportunityScore  Float    @default(0) @map("opportunity_score")
-  seasonalityScore  Float    @default(0) @map("seasonality_score")
-  lifetimeDays      Int      @default(0) @map("lifetime_days")
-  popularity        Int      @default(0)
-  timeSeries        Json     @default("[]") @map("time_series")
-  snapshotDate      DateTime @default(now()) @map("snapshot_date") @db.Date
+  id               String   @id @default(uuid()) @db.Uuid
+  recordId         String   @map("record_id") @db.Uuid
+  searchId         String   @map("search_id") @db.Uuid
+  volume           Int      @default(0)
+  growthPct        Int      @default(0) @map("growth_pct")
+  declinePct       Int      @default(0) @map("decline_pct")
+  competitionScore Float    @default(0) @map("competition_score")
+  opportunityScore Float    @default(0) @map("opportunity_score")
+  seasonalityScore Float    @default(0) @map("seasonality_score")
+  lifetimeDays     Int      @default(0) @map("lifetime_days")
+  popularity       Int      @default(0)
+  timeSeries       Json     @default("[]") @map("time_series")
+  snapshotDate     DateTime @default(now()) @map("snapshot_date") @db.Date
 
-  record TrendRecord  @relation(fields: [recordId], references: [id], onDelete: Cascade)
-  search TrendSearch  @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  record TrendRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  search TrendSearch @relation(fields: [searchId], references: [id], onDelete: Cascade)
 
   @@unique([recordId, snapshotDate])
   @@index([snapshotDate, recordId])
@@ -261,8 +262,8 @@ model ContentPlan {
 }
 
 model ContentIdea {
-  id             String  @id @default(uuid()) @db.Uuid
-  planId         String  @map("plan_id") @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
+  planId         String @map("plan_id") @db.Uuid
   position       Int
   title          String
   hook           String
@@ -270,7 +271,7 @@ model ContentIdea {
   cta            String
   hashtags       String
   keywords       String
-  videoStructure Json    @default("{}") @map("video_structure")
+  videoStructure Json   @default("{}") @map("video_structure")
 
   plan ContentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
 
@@ -281,14 +282,14 @@ model ContentIdea {
 // ─────────────────────────── API Keys ───────────────────────────
 
 model UserApiKey {
-  id         String    @id @default(uuid()) @db.Uuid
-  userId     String    @map("user_id") @db.Uuid
-  sourceId   String    @map("source_id") @db.Uuid
-  label      String
-  encryptedKey String  @map("encrypted_key")
-  meta       Json      @default("{}")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  lastUsedAt DateTime? @map("last_used_at")
+  id           String    @id @default(uuid()) @db.Uuid
+  userId       String    @map("user_id") @db.Uuid
+  sourceId     String    @map("source_id") @db.Uuid
+  label        String
+  encryptedKey String    @map("encrypted_key")
+  meta         Json      @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  lastUsedAt   DateTime? @map("last_used_at")
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   source Source @relation(fields: [sourceId], references: [id], onDelete: Cascade)
