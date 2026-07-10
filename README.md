@@ -1,3 +1,4 @@
+[README.md](https://github.com/user-attachments/files/29873040/README.md)
 # ViralForge AI
 
 > **"Transformando dados em conteúdo que gera resultados."**
