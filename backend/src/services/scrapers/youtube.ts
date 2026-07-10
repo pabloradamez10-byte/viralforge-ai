@@ -10,33 +10,57 @@ import type { RawTrendItem, TrendSource } from './types.js';
 export class YouTubeSource implements TrendSource {
   readonly slug = 'YOUTUBE';
 
-  async fetch(query: string, options?: { region?: string; language?: string; limit?: number }): Promise<RawTrendItem[]> {
-    if (!env.YOUTUBE_API_KEY) return [];
+  async fetch(
+    query: string,
+    options?: {
+      region?: string;
+      language?: string;
+      limit?: number;
+    },
+  ): Promise<RawTrendItem[]> {
+    if (!env.YOUTUBE_API_KEY) {
+      console.error('❌ YOUTUBE_API_KEY não encontrada.');
+      return [];
+    }
+
     const limit = Math.min(options?.limit ?? 20, 50);
     const region = options?.region || 'US';
     const language = options?.language || 'en';
+
     try {
-      const { data } = await axios.get('https://www.googleapis.com/youtube/v3/search', {
-        params: {
-          key: env.YOUTUBE_API_KEY,
-          part: 'snippet',
-          q: query || '',
-          type: 'video',
-          order: 'viewCount',
-          maxResults: limit,
-          regionCode: region,
-          relevanceLanguage: language,
-          publishedAfter: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      const { data } = await axios.get(
+        'https://www.googleapis.com/youtube/v3/search',
+        {
+          params: {
+            key: env.YOUTUBE_API_KEY,
+            part: 'snippet',
+            q: query || '',
+            type: 'video',
+            order: 'viewCount',
+            maxResults: limit,
+            regionCode: region,
+            relevanceLanguage: language,
+            publishedAfter: new Date(
+              Date.now() - 7 * 24 * 60 * 60 * 1000,
+            ).toISOString(),
+          },
+          timeout: 15000,
         },
-        timeout: 15_000,
-      });
+      );
 
       const items: any[] = data.items ?? [];
+
+      console.log(`✅ YouTube retornou ${items.length} vídeos.`);
+
       return items.map((it) => ({
         externalId: it.id?.videoId,
         title: it.snippet?.title ?? '',
-        url: it.id?.videoId ? `https://www.youtube.com/watch?v=${it.id.videoId}` : undefined,
-        publishedAt: it.snippet?.publishedAt ? new Date(it.snippet.publishedAt) : new Date(),
+        url: it.id?.videoId
+          ? `https://www.youtube.com/watch?v=${it.id.videoId}`
+          : undefined,
+        publishedAt: it.snippet?.publishedAt
+          ? new Date(it.snippet.publishedAt)
+          : new Date(),
         payload: {
           channelTitle: it.snippet?.channelTitle,
           description: it.snippet?.description,
@@ -45,7 +69,12 @@ export class YouTubeSource implements TrendSource {
         region,
         language,
       }));
-    } catch {
+    } catch (error: any) {
+      console.error('❌ YouTube API ERROR');
+      console.error('Status:', error?.response?.status);
+      console.error('Message:', error?.message);
+      console.error('Response:', error?.response?.data);
+
       return [];
     }
   }
