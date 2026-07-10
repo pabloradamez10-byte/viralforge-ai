@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { api, clearTokens, setTokens } from '@/lib/api';
+import { clearTokens } from '@/lib/api';
 
 export interface User {
   id: string;
@@ -18,35 +18,54 @@ interface AuthState {
   fetchMe: () => Promise<void>;
 }
 
+const TEST_USER: User = {
+  id: 'test-admin',
+  email: 'admin',
+  name: 'Administrador',
+  role: 'ADMIN',
+  plan: 'ENTERPRISE',
+};
+
 export const useAuth = create<AuthState>((set) => ({
   user: null,
   loading: true,
+
   async login(email, password) {
-    const { data } = await api.post('/auth/login', { email, password });
-    const { user, accessToken, refreshToken } = data.data;
-    setTokens(accessToken, refreshToken);
-    set({ user });
-  },
-  async register(email, password, name) {
-    const { data } = await api.post('/auth/register', { email, password, name });
-    const { user, accessToken, refreshToken } = data.data;
-    setTokens(accessToken, refreshToken);
-    set({ user });
-  },
-  async logout() {
-    const refresh = localStorage.getItem('vf_refresh');
-    try {
-      if (refresh) await api.post('/auth/logout', { refreshToken: refresh });
-    } catch {}
-    clearTokens();
-    set({ user: null });
-  },
-  async fetchMe() {
-    try {
-      const { data } = await api.get('/auth/me');
-      set({ user: data.data, loading: false });
-    } catch {
-      set({ user: null, loading: false });
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (normalizedEmail !== 'admin' || password !== '123456') {
+      throw new Error('Usuário ou senha inválidos.');
     }
+
+    localStorage.setItem('vf_test_session', 'true');
+
+    set({
+      user: TEST_USER,
+      loading: false,
+    });
+  },
+
+  async register() {
+    throw new Error('Cadastro desativado temporariamente.');
+  },
+
+  async logout() {
+    localStorage.removeItem('vf_test_session');
+    clearTokens();
+
+    set({
+      user: null,
+      loading: false,
+    });
+  },
+
+  async fetchMe() {
+    const hasTestSession =
+      localStorage.getItem('vf_test_session') === 'true';
+
+    set({
+      user: hasTestSession ? TEST_USER : null,
+      loading: false,
+    });
   },
 }));
