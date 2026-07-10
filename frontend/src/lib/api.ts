@@ -1,70 +1,106 @@
-import axios, { AxiosError } from 'axios';
+import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 
-const baseURL = (import.meta as any).env?.VITE_API_URL || '/api/v1';
+const baseURL = import.meta.env.VITE_API_URL || '/api/v1';
 
 export const api = axios.create({
   baseURL,
   timeout: 30_000,
 });
 
-api.interceptors.request.use((config) => {
+api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = localStorage.getItem('vf_access');
+
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
   return config;
 });
 
 let isRefreshing = false;
-let queue: Array<(t: string | null) => void> = [];
+let queue: Array<(token: string | null) => void> = [];
+
+function retryRequest(config: InternalAxiosRequestConfig, token: string | null) {
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+
+  return api.request(config);
+}
 
 api.interceptors.response.use(
-  (r) => r,
+  (response) => response,
   async (error: AxiosError) => {
-    const original = error.config as any;
-    if (error.response?.status === 401 && !original._retry) {
-      original._retry = true;
-      const refresh = localStorage.getItem('vf_refresh');
-      if (!refresh) {
-        localStorage.removeItem('vf_access');
-        return Promise.reject(error);
-      }
-      if (isRefreshing) {
-        return new Promise((resolve) => queue.push((t) => resolve(this.retry(original, t))));
-      }
-      isRefreshing = true;
-      try {
-        const { data } = await axios.post(`${baseURL}/auth/refresh`, { refreshToken: refresh });
-        const newAccess = (data?.data?.accessToken || data?.data?.access_token) as string;
-        const newRefresh = (data?.data?.refreshToken || data?.data?.refresh_token) as string;
-        if (newAccess) localStorage.setItem('vf_access', newAccess);
-        if (newRefresh) localStorage.setItem('vf_refresh', newRefresh);
-        queue.forEach((cb) => cb(newAccess));
-        queue = [];
-        return this.retry(original, newAccess);
-      } catch (e) {
-        localStorage.removeItem('vf_access');
-        localStorage.removeItem('vf_refresh');
-        window.location.href = '/login';
-        return Promise.reject(e);
-      } finally {
-        isRefreshing = false;
-      }
+    const original = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined;
+
+    if (!original || error.response?.status !== 401 || original._retry) {
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
+
+    original._retry = true;
+    const refreshToken = localStorage.getItem('vf_refresh');
+
+    if (!refreshToken) {
+      clearTokens();
+      return Promise.reject(error);
+    }
+
+    if (isRefreshing) {
+      return new Promise((resolve, reject) => {
+        queue.push((token) => {
+          retryRequest(original, token).then(resolve).catch(reject);
+        });
+      });
+    }
+
+    isRefreshing = true;
+
+    try {
+      const { data } = await axios.post(`${baseURL}/auth/refresh`, {
+        refreshToken,
+      });
+
+      const newAccess = (data?.data?.accessToken || data?.data?.access_token) as string | undefined;
+      const newRefresh = (data?.data?.refreshToken || data?.data?.refresh_token) as string | undefined;
+
+      if (!newAccess) {
+        throw new Error('A API não retornou um novo token de acesso.');
+      }
+
+      localStorage.setItem('vf_access', newAccess);
+
+      if (newRefresh) {
+        localStorage.setItem('vf_refresh', newRefresh);
+      }
+
+      queue.forEach((callback) => callback(newAccess));
+      queue = [];
+
+      return retryRequest(original, newAccess);
+    } catch (refreshError) {
+      queue.forEach((callback) => callback(null));
+      queue = [];
+      clearTokens();
+
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+
+      return Promise.reject(refreshError);
+    } finally {
+      isRefreshing = false;
+    }
   },
 );
-
-(api as any).retry = function (config: any, token: string | null) {
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return api.request(config);
-};
 
 export function setTokens(access: string, refresh: string) {
   localStorage.setItem('vf_access', access);
   localStorage.setItem('vf_refresh', refresh);
 }
+
 export function clearTokens() {
   localStorage.removeItem('vf_access');
   localStorage.removeItem('vf_refresh');
 }
+
+export default api;
