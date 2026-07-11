@@ -1,6 +1,17 @@
 import axios from 'axios';
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
+
+import { env } from '../../../config/env.js';
+
+export interface PexelsVideoFile {
+  id: number;
+  quality: string;
+  file_type: string;
+  width: number;
+  height: number;
+  link: string;
+}
 
 export interface PexelsVideo {
   id: number;
@@ -9,81 +20,186 @@ export interface PexelsVideo {
   duration: number;
   url: string;
   image: string;
-  video_files: {
-    id: number;
-    quality: string;
-    file_type: string;
-    width: number;
-    height: number;
-    link: string;
-  }[];
+  video_files: PexelsVideoFile[];
+}
+
+interface PexelsSearchResponse {
+  videos?: PexelsVideo[];
 }
 
 class PexelsProvider {
-  private api = axios.create({
-    baseURL: 'https://api.pexels.com/videos',
-    headers: {
-      Authorization: process.env.PEXELS_API_KEY ?? '',
-    },
-  });
+  private getApiKey(): string {
+    const apiKey = env.PEXELS_API_KEY?.trim();
 
-  async search(query: string): Promise<PexelsVideo[]> {
-    const { data } = await this.api.get('/search', {
-      params: {
-        query,
-        per_page: 10,
-      },
-    });
+    if (!apiKey) {
+      throw new Error(
+        'PEXELS_API_KEY não configurada no Railway.',
+      );
+    }
 
-    return data.videos ?? [];
+    return apiKey;
   }
 
-  async download(video: PexelsVideo): Promise<string> {
-    const file =
-      video.video_files.find(
-        v =>
-          v.quality === 'hd' &&
-          v.file_type === 'video/mp4',
-      ) ?? video.video_files[0];
+  async search(
+    query: string,
+    perPage = 10,
+  ): Promise<PexelsVideo[]> {
+    const normalizedQuery = query.trim();
 
-    if (!file) {
-      throw new Error('Nenhum arquivo disponível.');
+    if (!normalizedQuery) {
+      throw new Error(
+        'A busca do Pexels não pode estar vazia.',
+      );
     }
 
-    const dir = path.resolve('storage/videos');
+    const { data } =
+      await axios.get<PexelsSearchResponse>(
+        'https://api.pexels.com/videos/search',
+        {
+          headers: {
+            Authorization: this.getApiKey(),
+          },
+          params: {
+            query: normalizedQuery,
+            orientation: 'portrait',
+            size: 'medium',
+            per_page: Math.min(
+              Math.max(perPage, 1),
+              40,
+            ),
+            page: 1,
+          },
+          timeout: 30_000,
+        },
+      );
 
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    return Array.isArray(data.videos)
+      ? data.videos
+      : [];
+  }
+
+  async download(
+    video: PexelsVideo,
+    outputDirectory = 'storage/videos',
+  ): Promise<string> {
+    const selectedFile =
+      this.selectBestVideoFile(video);
+
+    if (!selectedFile) {
+      throw new Error(
+        `Nenhum arquivo MP4 compatível foi encontrado para o vídeo ${video.id}.`,
+      );
     }
 
-    const filename = `${video.id}.mp4`;
-    const destination = path.join(dir, filename);
+    const directory = path.resolve(
+      outputDirectory,
+    );
 
-    const response = await axios.get(file.link, {
-      responseType: 'stream',
+    await fs.promises.mkdir(directory, {
+      recursive: true,
     });
 
-    const writer = fs.createWriteStream(destination);
+    const filename = `${video.id}-${Date.now()}.mp4`;
+
+    const destination = path.join(
+      directory,
+      filename,
+    );
+
+    const response = await axios.get(
+      selectedFile.link,
+      {
+        responseType: 'stream',
+        timeout: 120_000,
+      },
+    );
+
+    const writer =
+      fs.createWriteStream(destination);
 
     response.data.pipe(writer);
 
-    await new Promise<void>((resolve, reject) => {
-      writer.on('finish', resolve);
-      writer.on('error', reject);
-    });
+    await new Promise<void>(
+      (resolve, reject) => {
+        writer.on('finish', resolve);
+
+        writer.on('error', reject);
+
+        response.data.on(
+          'error',
+          reject,
+        );
+      },
+    );
 
     return destination;
   }
 
-  async searchAndDownload(query: string): Promise<string> {
-    const videos = await this.search(query);
+  async searchAndDownload(
+    query: string,
+    outputDirectory = 'storage/videos',
+  ): Promise<string> {
+    const videos = await this.search(
+      query,
+      15,
+    );
 
-    if (!videos.length) {
-      throw new Error(`Nenhum vídeo encontrado para "${query}"`);
+    const firstVideo = videos[0];
+
+    if (!firstVideo) {
+      throw new Error(
+        `Nenhum vídeo encontrado no Pexels para "${query}".`,
+      );
     }
 
-    return this.download(videos[0]);
+    return this.download(
+      firstVideo,
+      outputDirectory,
+    );
+  }
+
+  private selectBestVideoFile(
+    video: PexelsVideo,
+  ): PexelsVideoFile | undefined {
+    const compatibleFiles =
+      video.video_files
+        .filter(
+          (file) =>
+            file.file_type === 'video/mp4' &&
+            file.height > file.width &&
+            file.width >= 540 &&
+            file.height >= 960,
+        )
+        .sort(
+          (first, second) =>
+            this.calculateFileScore(second) -
+            this.calculateFileScore(first),
+        );
+
+    return compatibleFiles[0];
+  }
+
+  private calculateFileScore(
+    file: PexelsVideoFile,
+  ): number {
+    const targetWidth = 1080;
+    const targetHeight = 1920;
+
+    const widthDistance = Math.abs(
+      file.width - targetWidth,
+    );
+
+    const heightDistance = Math.abs(
+      file.height - targetHeight,
+    );
+
+    return (
+      file.width * file.height -
+      widthDistance * 100 -
+      heightDistance * 100
+    );
   }
 }
 
-export const pexelsProvider = new PexelsProvider();
+export const pexelsProvider =
+  new PexelsProvider();
