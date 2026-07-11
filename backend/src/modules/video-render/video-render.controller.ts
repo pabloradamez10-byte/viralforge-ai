@@ -14,11 +14,8 @@ import {
 
 import { videoRenderService } from './video-render.service.js';
 
-interface AuthenticatedRequest
-  extends Request {
-  user?: {
-    id: string;
-  };
+interface AuthenticatedRequest extends Request {
+  userId?: string;
 }
 
 export class VideoRenderController {
@@ -29,10 +26,9 @@ export class VideoRenderController {
     ) => {
       const userId = this.getUserId(req);
 
-      const dto =
-        CreateVideoRenderDto.parse(
-          req.body,
-        );
+      const dto = CreateVideoRenderDto.parse(
+        req.body,
+      );
 
       const result =
         await videoRenderService.render(
@@ -88,8 +84,9 @@ export class VideoRenderController {
           id,
         );
 
-      const filename =
-        path.basename(filePath);
+      const filename = path.basename(
+        filePath,
+      );
 
       res.download(
         filePath,
@@ -101,7 +98,7 @@ export class VideoRenderController {
   private getUserId(
     req: AuthenticatedRequest,
   ): string {
-    const userId = req.user?.id;
+    const userId = req.userId;
 
     if (!userId) {
       throw new Error(
