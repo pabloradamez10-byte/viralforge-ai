@@ -1,51 +1,52 @@
 import { Router } from 'express';
+
 import { auth } from '../../shared/middlewares/auth.js';
-import { validate } from '../../shared/middlewares/validate.js';
 import { audit } from '../../shared/middlewares/audit.js';
-import { ViralVideosController } from './viral-videos.controller.js';
-import { SearchViralVideosDto } from './viral-videos.dto.js';
 
-const c = new ViralVideosController();
-export const viralVideosRoutes: Router = Router();
+import { videoRenderController } from './video-render.controller.js';
 
-/**
- * @swagger
- * /api/v1/viral-videos:
- *   get:
- *     tags: [Viral Videos]
- *     security: [{ bearerAuth: [] }]
- *     summary: Lista vídeos virais (apenas referência — sem download)
- *     parameters:
- *       - in: query
- *         name: niche
- *         schema: { type: string }
- *       - in: query
- *         name: platform
- *         schema: { type: string, enum: [YOUTUBE, TIKTOK, REDDIT, ALL] }
- *       - in: query
- *         name: region
- *         schema: { type: string, default: BR }
- *       - in: query
- *         name: language
- *         schema: { type: string, default: pt }
- *       - in: query
- *         name: minScore
- *         schema: { type: integer, default: 60 }
- *       - in: query
- *         name: page
- *         schema: { type: integer, default: 1 }
- *       - in: query
- *         name: pageSize
- *         schema: { type: integer, default: 20 }
- */
-viralVideosRoutes.get('/', auth, c.list);
+export const videoRenderRoutes: Router = Router();
 
 /**
  * @swagger
- * /api/v1/viral-videos/search:
+ * /api/v1/video-renders:
  *   post:
- *     tags: [Viral Videos]
+ *     tags: [Video Renders]
  *     security: [{ bearerAuth: [] }]
- *     summary: Força uma busca nova por vídeos virais em um nicho
+ *     summary: Inicia a geração de um vídeo faceless
  */
-viralVideosRoutes.post('/search', auth, validate(SearchViralVideosDto), audit('viral.search', 'viral'), c.search);
+videoRenderRoutes.post(
+  '/',
+  auth,
+  audit('video-render.create', 'video-render'),
+  videoRenderController.create,
+);
+
+/**
+ * @swagger
+ * /api/v1/video-renders/{id}:
+ *   get:
+ *     tags: [Video Renders]
+ *     security: [{ bearerAuth: [] }]
+ *     summary: Consulta o andamento de uma renderização
+ */
+videoRenderRoutes.get(
+  '/:id',
+  auth,
+  videoRenderController.status,
+);
+
+/**
+ * @swagger
+ * /api/v1/video-renders/{id}/download:
+ *   get:
+ *     tags: [Video Renders]
+ *     security: [{ bearerAuth: [] }]
+ *     summary: Baixa o vídeo finalizado
+ */
+videoRenderRoutes.get(
+  '/:id/download',
+  auth,
+  audit('video-render.download', 'video-render'),
+  videoRenderController.download,
+);
