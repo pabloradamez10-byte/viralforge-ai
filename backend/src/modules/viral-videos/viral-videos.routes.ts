@@ -1,52 +1,42 @@
 import { Router } from 'express';
 
 import { auth } from '../../shared/middlewares/auth.js';
+import { validate } from '../../shared/middlewares/validate.js';
 import { audit } from '../../shared/middlewares/audit.js';
 
-import { videoRenderController } from './video-render.controller.js';
+import { ViralVideosController } from './viral-videos.controller.js';
+import { SearchViralVideosDto } from './viral-videos.dto.js';
 
-export const videoRenderRoutes: Router = Router();
+const controller = new ViralVideosController();
+
+export const viralVideosRoutes: Router = Router();
 
 /**
  * @swagger
- * /api/v1/video-renders:
- *   post:
- *     tags: [Video Renders]
+ * /api/v1/viral-videos:
+ *   get:
+ *     tags: [Viral Videos]
  *     security: [{ bearerAuth: [] }]
- *     summary: Inicia a geração de um vídeo faceless
+ *     summary: Lista vídeos virais
  */
-videoRenderRoutes.post(
+viralVideosRoutes.get(
   '/',
   auth,
-  audit('video-render.create', 'video-render'),
-  videoRenderController.create,
+  controller.list,
 );
 
 /**
  * @swagger
- * /api/v1/video-renders/{id}:
- *   get:
- *     tags: [Video Renders]
+ * /api/v1/viral-videos/search:
+ *   post:
+ *     tags: [Viral Videos]
  *     security: [{ bearerAuth: [] }]
- *     summary: Consulta o andamento de uma renderização
+ *     summary: Executa uma nova busca por vídeos virais
  */
-videoRenderRoutes.get(
-  '/:id',
+viralVideosRoutes.post(
+  '/search',
   auth,
-  videoRenderController.status,
-);
-
-/**
- * @swagger
- * /api/v1/video-renders/{id}/download:
- *   get:
- *     tags: [Video Renders]
- *     security: [{ bearerAuth: [] }]
- *     summary: Baixa o vídeo finalizado
- */
-videoRenderRoutes.get(
-  '/:id/download',
-  auth,
-  audit('video-render.download', 'video-render'),
-  videoRenderController.download,
+  validate(SearchViralVideosDto),
+  audit('viral.search', 'viral'),
+  controller.search,
 );
