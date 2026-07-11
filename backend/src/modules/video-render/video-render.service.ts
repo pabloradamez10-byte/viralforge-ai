@@ -1,46 +1,58 @@
-import { v4 as uuid } from 'uuid';
+import path from 'node:path';
+import fs from 'node:fs/promises';
 
-import type {
-  CreateVideoRenderDto,
-  VideoRenderResult,
-} from './video-render.dto.js';
+import { ffmpegService } from './ffmpeg.service.js';
+import { ttsService } from './tts.service.js';
+import { mediaService } from './media.service.js';
 
 export class VideoRenderService {
-  async render(
-    userId: string,
-    dto: CreateVideoRenderDto,
-  ): Promise<VideoRenderResult> {
-    console.log('============================');
-    console.log('VIDEO RENDER REQUEST');
-    console.log('============================');
+  async render(script: any) {
+    const jobId = Date.now().toString();
 
-    console.log({
-      userId,
-      scriptId: dto.facelessScriptId,
-      scenes: dto.scenes.length,
-      resolution: dto.resolution,
-      format: dto.format,
-      voice: dto.voice,
+    const workDir = path.join(
+      process.cwd(),
+      'storage',
+      'renders',
+      jobId,
+    );
+
+    await fs.mkdir(workDir, { recursive: true });
+
+    console.log('🎬 Iniciando render...');
+
+    // 1 - Narração
+    const narration = await ttsService.generateSpeech({
+      text: script.narration,
+      outputDirectory: workDir,
+      outputFilename: 'voice.mp3',
     });
 
-    return {
-      id: uuid(),
-      status: 'PENDING',
-      progress: 0,
-      message: 'Render iniciado.',
-      createdAt: new Date().toISOString(),
-    };
-  }
+    console.log('✅ Narração criada');
 
-  async status(
-    id: string,
-  ): Promise<VideoRenderResult> {
+    // 2 - Baixar vídeos das cenas
+    const videos: string[] = [];
+
+    for (const scene of script.scenes) {
+      const clip = await mediaService.downloadScene(scene, workDir);
+
+      videos.push(clip);
+    }
+
+    console.log('✅ Clipes baixados');
+
+    // 3 - Render final
+    const output = await ffmpegService.renderVideo({
+      videos,
+      narration: narration.filePath,
+      captions: script.captions,
+      output: path.join(workDir, 'final.mp4'),
+    });
+
+    console.log('✅ Vídeo final criado');
+
     return {
-      id,
-      status: 'PENDING',
-      progress: 0,
-      message: 'Aguardando processamento...',
-      createdAt: new Date().toISOString(),
+      success: true,
+      file: output,
     };
   }
 }
