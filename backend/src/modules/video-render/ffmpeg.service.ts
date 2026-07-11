@@ -1,23 +1,30 @@
 import { spawn } from 'node:child_process';
-import {
-  mkdir,
-  writeFile,
-} from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export interface RenderVideoInput {
   workingDirectory: string;
   outputFilename: string;
 
+  /**
+   * Caminhos dos vídeos usados em cada cena.
+   */
   inputVideos: string[];
 
   /**
-   * Duração desejada de cada vídeo, na mesma ordem de inputVideos.
+   * Duração desejada de cada cena.
+   * Deve seguir a mesma ordem de inputVideos.
    */
   sceneDurations: number[];
 
+  /**
+   * Arquivo MP3 com a narração.
+   */
   narrationFile: string;
 
+  /**
+   * Arquivo SRT opcional.
+   */
   subtitleFile?: string;
 
   width?: number;
@@ -28,6 +35,15 @@ export interface RenderVideoInput {
 export interface RenderVideoResult {
   outputFile: string;
   normalizedVideos: string[];
+}
+
+interface NormalizeSceneInput {
+  sourceVideo: string;
+  outputFile: string;
+  duration: number;
+  width: number;
+  height: number;
+  fps: number;
 }
 
 export class FFmpegService {
@@ -46,6 +62,18 @@ export class FFmpegService {
     ) {
       throw new Error(
         'A quantidade de vídeos deve ser igual à quantidade de durações.',
+      );
+    }
+
+    if (!input.narrationFile.trim()) {
+      throw new Error(
+        'O arquivo de narração não foi informado.',
+      );
+    }
+
+    if (!input.outputFilename.trim()) {
+      throw new Error(
+        'O nome do arquivo final não foi informado.',
       );
     }
 
@@ -80,8 +108,26 @@ export class FFmpegService {
       const sourceVideo =
         input.inputVideos[index];
 
+      const sceneDuration =
+        input.sceneDurations[index];
+
+      if (!sourceVideo) {
+        throw new Error(
+          `Vídeo da cena ${index + 1} não encontrado.`,
+        );
+      }
+
+      if (
+        sceneDuration === undefined ||
+        !Number.isFinite(sceneDuration)
+      ) {
+        throw new Error(
+          `Duração inválida para a cena ${index + 1}.`,
+        );
+      }
+
       const duration = Math.max(
-        input.sceneDurations[index] ?? 1,
+        sceneDuration,
         1,
       );
 
@@ -145,7 +191,7 @@ export class FFmpegService {
       input.outputFilename,
     );
 
-    const args = [
+    const args: string[] = [
       '-y',
       '-i',
       joinedVideo,
@@ -153,16 +199,25 @@ export class FFmpegService {
       input.narrationFile,
     ];
 
-    if (input.subtitleFile) {
+    const subtitleFile =
+      input.subtitleFile;
+
+    if (subtitleFile) {
+      const escapedSubtitlePath =
+        this.escapeSubtitlePath(
+          subtitleFile,
+        );
+
       args.push(
         '-vf',
-        `subtitles=${this.escapeSubtitlePath(input.subtitleFile)}:force_style='FontName=DejaVu Sans,FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=140'`,
+        `subtitles='${escapedSubtitlePath}':force_style='FontName=DejaVu Sans,FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=140'`,
       );
     }
 
     args.push(
       '-map',
       '0:v:0',
+
       '-map',
       '1:a:0',
 
@@ -207,14 +262,7 @@ export class FFmpegService {
   }
 
   private async normalizeScene(
-    input: {
-      sourceVideo: string;
-      outputFile: string;
-      duration: number;
-      width: number;
-      height: number;
-      fps: number;
-    },
+    input: NormalizeSceneInput,
   ): Promise<void> {
     const videoFilter = [
       `scale=${input.width}:${input.height}:force_original_aspect_ratio=increase`,
@@ -229,7 +277,7 @@ export class FFmpegService {
 
       /**
        * Repete o clipe caso ele seja menor
-       * que a duração exigida pela cena.
+       * que a duração necessária.
        */
       '-stream_loop',
       '-1',
@@ -240,6 +288,9 @@ export class FFmpegService {
       '-t',
       String(input.duration),
 
+      /**
+       * Remove o áudio original do clipe.
+       */
       '-an',
 
       '-vf',
@@ -257,6 +308,9 @@ export class FFmpegService {
       '-movflags',
       '+faststart',
 
+      '-pix_fmt',
+      'yuv420p',
+
       input.outputFile,
     ]);
   }
@@ -264,10 +318,10 @@ export class FFmpegService {
   private escapeConcatPath(
     filePath: string,
   ): string {
-    return filePath.replace(
-      /'/g,
-      "'\\''",
-    );
+    return path
+      .resolve(filePath)
+      .replace(/\\/g, '/')
+      .replace(/'/g, "'\\''");
   }
 
   private escapeSubtitlePath(
@@ -284,9 +338,9 @@ export class FFmpegService {
     command: string,
     args: string[],
   ): Promise<void> {
-    return new Promise(
+    return new Promise<void>(
       (resolve, reject) => {
-        const process = spawn(
+        const childProcess = spawn(
           command,
           args,
           {
@@ -300,7 +354,7 @@ export class FFmpegService {
 
         let stderr = '';
 
-        process.stderr.on(
+        childProcess.stderr.on(
           'data',
           (chunk: Buffer) => {
             stderr += chunk.toString();
@@ -313,7 +367,7 @@ export class FFmpegService {
           },
         );
 
-        process.on(
+        childProcess.on(
           'error',
           (error) => {
             reject(
@@ -324,7 +378,7 @@ export class FFmpegService {
           },
         );
 
-        process.on(
+        childProcess.on(
           'close',
           (code) => {
             if (code === 0) {
