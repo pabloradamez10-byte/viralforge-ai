@@ -1,8 +1,7 @@
-import axios from 'axios';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { env } from '../../config/env.js';
+import { EdgeTTS } from 'edge-tts-universal';
 
 export type TtsVoice =
   | 'alloy'
@@ -32,26 +31,22 @@ export interface GenerateSpeechResult {
   characterCount: number;
 }
 
-interface OpenAiSpeechError {
-  error?: {
-    message?: string;
-    type?: string;
-    code?: string;
-  };
-}
+const EDGE_VOICE_BY_APP_VOICE: Record<TtsVoice, string> = {
+  alloy: 'pt-BR-FranciscaNeural',
+  ash: 'pt-BR-AntonioNeural',
+  coral: 'pt-BR-FranciscaNeural',
+  echo: 'pt-BR-AntonioNeural',
+  fable: 'pt-BR-FranciscaNeural',
+  nova: 'pt-BR-FranciscaNeural',
+  onyx: 'pt-BR-AntonioNeural',
+  sage: 'pt-BR-FranciscaNeural',
+  shimmer: 'pt-BR-FranciscaNeural',
+};
 
 export class TtsService {
   async generateSpeech(
     input: GenerateSpeechInput,
   ): Promise<GenerateSpeechResult> {
-    const apiKey = env.OPENAI_API_KEY?.trim();
-
-    if (!apiKey) {
-      throw new Error(
-        'OPENAI_API_KEY não configurada no Railway.',
-      );
-    }
-
     const text = this.normalizeText(input.text);
 
     if (!text) {
@@ -60,23 +55,23 @@ export class TtsService {
       );
     }
 
-    /*
-     * Nesta primeira versão, o vídeo curto usa uma única
-     * requisição de narração. Textos maiores serão divididos
-     * quando implementarmos vídeos longos.
-     */
-    if (text.length > 4096) {
+    if (text.length > 10_000) {
       throw new Error(
-        `A narração possui ${text.length} caracteres. O limite atual é 4096. Reduza o roteiro ou gere uma versão curta.`,
+        `A narração possui ${text.length} caracteres. O limite atual é 10000.`,
       );
     }
 
     const voice: TtsVoice =
       input.voice ?? 'onyx';
 
+    const edgeVoice =
+      EDGE_VOICE_BY_APP_VOICE[voice];
+
     const speed = this.normalizeSpeed(
       input.speed ?? 1,
     );
+
+    const rate = this.speedToRate(speed);
 
     const outputDirectory = path.resolve(
       input.outputDirectory,
@@ -97,43 +92,26 @@ export class TtsService {
     );
 
     try {
-      const response = await axios.post<ArrayBuffer>(
-        'https://api.openai.com/v1/audio/speech',
+      const tts = new EdgeTTS(
+        text,
+        edgeVoice,
         {
-          model: 'gpt-4o-mini-tts',
-          voice,
-          input: text,
-          instructions:
-            input.instructions?.trim() ||
-            [
-              'Fale em português do Brasil.',
-              'Use dicção clara e ritmo natural.',
-              'Mantenha energia e curiosidade.',
-              'Faça pequenas pausas entre as ideias.',
-              'O estilo deve funcionar em um vídeo curto para redes sociais.',
-            ].join(' '),
-          response_format: 'mp3',
-          speed,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          responseType: 'arraybuffer',
-          timeout: 120_000,
-          maxContentLength: 25 * 1024 * 1024,
-          maxBodyLength: 25 * 1024 * 1024,
+          rate,
+          volume: '+0%',
+          pitch: '+0Hz',
         },
       );
 
+      const result =
+        await tts.synthesize();
+
       const audioBuffer = Buffer.from(
-        response.data,
+        await result.audio.arrayBuffer(),
       );
 
       if (audioBuffer.length === 0) {
         throw new Error(
-          'A API de voz retornou um arquivo vazio.',
+          'O Edge TTS retornou um arquivo de áudio vazio.',
         );
       }
 
@@ -150,34 +128,13 @@ export class TtsService {
         characterCount: text.length,
       };
     } catch (error: unknown) {
-      if (axios.isAxiosError<OpenAiSpeechError>(error)) {
-        const status =
-          error.response?.status;
-
-        const apiMessage =
-          error.response?.data?.error?.message;
-
-        throw new Error(
-          [
-            'Falha ao gerar a narração pela OpenAI.',
-            status
-              ? `Status HTTP: ${status}.`
-              : '',
-            apiMessage
-              ? `Mensagem: ${apiMessage}`
-              : error.message,
-          ]
-            .filter(Boolean)
-            .join(' '),
-        );
-      }
-
-      if (error instanceof Error) {
-        throw error;
-      }
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Erro desconhecido';
 
       throw new Error(
-        'Falha desconhecida ao gerar a narração.',
+        `Falha ao gerar a narração pelo Edge TTS. ${message}`,
       );
     }
   }
@@ -201,9 +158,25 @@ export class TtsService {
     }
 
     return Math.min(
-      Math.max(speed, 0.25),
-      4,
+      Math.max(speed, 0.5),
+      2,
     );
+  }
+
+  private speedToRate(
+    speed: number,
+  ): string {
+    const percentage = Math.round(
+      (speed - 1) * 100,
+    );
+
+    if (percentage === 0) {
+      return '+0%';
+    }
+
+    return percentage > 0
+      ? `+${percentage}%`
+      : `${percentage}%`;
   }
 
   private normalizeFilename(
