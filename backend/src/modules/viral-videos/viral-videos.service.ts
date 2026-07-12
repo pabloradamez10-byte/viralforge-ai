@@ -58,14 +58,6 @@ interface SearchAcrossSourcesOptions {
 export class ViralVideosService {
   /**
    * Lista vídeos virais com cache de 10 minutos.
-   *
-   * A listagem:
-   * - busca nas fontes selecionadas;
-   * - aplica janela temporal;
-   * - calcula o score detalhado;
-   * - filtra pelo score mínimo;
-   * - ordena;
-   * - aplica paginação.
    */
   async list(
     dto: ListViralVideosDto,
@@ -77,15 +69,10 @@ export class ViralVideosService {
       key,
       600,
       async (): Promise<ViralVideosListResult> => {
-        /*
-         * Busca uma quantidade suficiente para a página atual,
-         * respeitando o limite de 50 resultados da API do YouTube.
-         */
         const requestedResults =
           Math.min(
             Math.max(
-              dto.page *
-                dto.pageSize,
+              dto.page * dto.pageSize,
               dto.pageSize * 2,
             ),
             50,
@@ -94,31 +81,16 @@ export class ViralVideosService {
         const items =
           await this.searchAcrossSources({
             niche: dto.niche,
-
-            platform:
-              dto.platform,
-
-            region:
-              dto.region,
-
-            language:
-              dto.language,
-
-            maxResults:
-              requestedResults,
-
-            timeWindow:
-              dto.timeWindow,
-
-            duration:
-              dto.duration,
-
+            platform: dto.platform,
+            region: dto.region,
+            language: dto.language,
+            maxResults: requestedResults,
+            timeWindow: dto.timeWindow,
+            duration: dto.duration,
             includeComments:
               dto.includeComments,
-
             includeChannelStats:
               dto.includeChannelStats,
-
             includeHashtags:
               dto.includeHashtags,
           });
@@ -127,8 +99,7 @@ export class ViralVideosService {
           this.scoreVideos(items)
             .filter(
               (
-                video:
-                  ScoredViralVideo,
+                video: ScoredViralVideo,
               ): boolean =>
                 video.score >=
                 dto.minScore,
@@ -147,69 +118,42 @@ export class ViralVideosService {
         const paged =
           ordered.slice(
             start,
-            start +
-              dto.pageSize,
-          );
-
-        const sourcesUsed =
-          this.getSourcesUsed(
-            items,
+            start + dto.pageSize,
           );
 
         return {
-          items:
-            paged,
-
-          total:
-            ordered.length,
-
-          page:
-            dto.page,
-
-          pageSize:
-            dto.pageSize,
-
-          sourcesUsed,
+          items: paged,
+          total: ordered.length,
+          page: dto.page,
+          pageSize: dto.pageSize,
+          sourcesUsed:
+            this.getSourcesUsed(
+              items,
+            ),
         };
       },
     );
   }
 
   /**
-   * Executa busca nova, sem cache.
+   * Executa uma busca nova, sem cache.
    */
   async search(
     dto: SearchViralVideosDto,
   ): Promise<ViralVideosSearchResult> {
     const items =
       await this.searchAcrossSources({
-        niche:
-          dto.niche,
-
-        platform:
-          dto.platform,
-
-        region:
-          dto.region,
-
-        language:
-          dto.language,
-
-        maxResults:
-          dto.maxResults,
-
-        timeWindow:
-          dto.timeWindow,
-
-        duration:
-          dto.duration,
-
+        niche: dto.niche,
+        platform: dto.platform,
+        region: dto.region,
+        language: dto.language,
+        maxResults: dto.maxResults,
+        timeWindow: dto.timeWindow,
+        duration: dto.duration,
         includeComments:
           dto.includeComments,
-
         includeChannelStats:
           dto.includeChannelStats,
-
         includeHashtags:
           dto.includeHashtags,
       });
@@ -218,11 +162,10 @@ export class ViralVideosService {
       this.scoreVideos(items)
         .filter(
           (
-            video:
-              ScoredViralVideo,
+            video: ScoredViralVideo,
           ): boolean =>
             video.score >=
-              dto.minScore,
+            dto.minScore,
         );
 
     const ordered =
@@ -235,12 +178,8 @@ export class ViralVideosService {
       );
 
     return {
-      items:
-        ordered,
-
-      total:
-        ordered.length,
-
+      items: ordered,
+      total: ordered.length,
       sourcesUsed:
         this.getSourcesUsed(
           items,
@@ -250,14 +189,9 @@ export class ViralVideosService {
 
   /**
    * Consulta as fontes selecionadas.
-   *
-   * Os parâmetros avançados são enviados para o YouTube.
-   * Reddit e TikTok recebem os filtros básicos e são
-   * filtrados novamente após a coleta.
    */
   private async searchAcrossSources(
-    options:
-      SearchAcrossSourcesOptions,
+    options: SearchAcrossSourcesOptions,
   ): Promise<ViralVideo[]> {
     const tasks:
       Array<
@@ -279,16 +213,12 @@ export class ViralVideosService {
           {
             timeWindow:
               options.timeWindow,
-
             duration:
               options.duration,
-
             includeComments:
               options.includeComments,
-
             includeChannelStats:
               options.includeChannelStats,
-
             includeHashtags:
               options.includeHashtags,
           },
@@ -327,15 +257,13 @@ export class ViralVideosService {
       );
     }
 
-    if (
-      tasks.length === 0
-    ) {
+    if (tasks.length === 0) {
       return [];
     }
 
     /*
-     * allSettled impede que uma fonte fora do ar
-     * derrube toda a busca.
+     * Uma fonte com falha não interrompe
+     * os resultados das outras fontes.
      */
     const groups =
       await Promise.allSettled(
@@ -345,9 +273,7 @@ export class ViralVideosService {
     const collected:
       ViralVideo[] = [];
 
-    for (
-      const group of groups
-    ) {
+    for (const group of groups) {
       if (
         group.status ===
         'fulfilled'
@@ -374,17 +300,14 @@ export class ViralVideosService {
         options.timeWindow,
       );
 
-    const durationFiltered =
-      this.filterByDuration(
-        timeFiltered,
-        options.duration,
-      );
-
-    return durationFiltered;
+    return this.filterByDuration(
+      timeFiltered,
+      options.duration,
+    );
   }
 
   /**
-   * Calcula o score e o detalhamento de cada vídeo.
+   * Adiciona score e detalhamento.
    */
   private scoreVideos(
     items: ViralVideo[],
@@ -400,10 +323,8 @@ export class ViralVideosService {
 
         return {
           ...video,
-
           score:
             scoreBreakdown.score,
-
           scoreBreakdown,
         };
       },
@@ -411,13 +332,11 @@ export class ViralVideosService {
   }
 
   /**
-   * Ordena conforme o filtro escolhido pelo usuário.
+   * Ordena conforme o filtro escolhido.
    */
   private sortVideos(
-    items:
-      ScoredViralVideo[],
-    order:
-      ViralOrder,
+    items: ScoredViralVideo[],
+    order: ViralOrder,
   ): ScoredViralVideo[] {
     const sorted =
       [...items];
@@ -426,10 +345,8 @@ export class ViralVideosService {
       case 'VIEW_VELOCITY':
         return sorted.sort(
           (
-            first:
-              ScoredViralVideo,
-            second:
-              ScoredViralVideo,
+            first: ScoredViralVideo,
+            second: ScoredViralVideo,
           ): number =>
             this.safeMetric(
               second.viewsPerHour,
@@ -442,10 +359,8 @@ export class ViralVideosService {
       case 'ENGAGEMENT':
         return sorted.sort(
           (
-            first:
-              ScoredViralVideo,
-            second:
-              ScoredViralVideo,
+            first: ScoredViralVideo,
+            second: ScoredViralVideo,
           ): number =>
             this.safeMetric(
               second.engagementRate,
@@ -458,22 +373,20 @@ export class ViralVideosService {
       case 'RECENT':
         return sorted.sort(
           (
-            first:
-              ScoredViralVideo,
-            second:
-              ScoredViralVideo,
+            first: ScoredViralVideo,
+            second: ScoredViralVideo,
           ): number =>
-            second.publishedAt.getTime() -
-            first.publishedAt.getTime(),
+            second.publishedAt
+              .getTime() -
+            first.publishedAt
+              .getTime(),
         );
 
       case 'VIEWS':
         return sorted.sort(
           (
-            first:
-              ScoredViralVideo,
-            second:
-              ScoredViralVideo,
+            first: ScoredViralVideo,
+            second: ScoredViralVideo,
           ): number =>
             second.views -
             first.views,
@@ -483,25 +396,19 @@ export class ViralVideosService {
       default:
         return sorted.sort(
           (
-            first:
-              ScoredViralVideo,
-            second:
-              ScoredViralVideo,
+            first: ScoredViralVideo,
+            second: ScoredViralVideo,
           ): number => {
             const scoreDifference =
               second.score -
               first.score;
 
             if (
-              scoreDifference !==
-              0
+              scoreDifference !== 0
             ) {
               return scoreDifference;
             }
 
-            /*
-             * Desempate por velocidade.
-             */
             return (
               this.safeMetric(
                 second.viewsPerHour,
@@ -516,17 +423,15 @@ export class ViralVideosService {
   }
 
   /**
-   * Aplica a janela temporal também ao Reddit.
+   * Aplica a janela temporal às fontes.
    *
-   * Para tendências do TikTok Creative Center,
-   * publishedAt representa o momento da coleta,
-   * pois o endpoint não fornece necessariamente
-   * a data original da tendência.
+   * O TikTok é mantido porque o Creative Center
+   * não fornece uma data de publicação confiável
+   * para cada tendência retornada.
    */
   private filterByTimeWindow(
     items: ViralVideo[],
-    timeWindow:
-      ViralTimeWindow,
+    timeWindow: ViralTimeWindow,
   ): ViralVideo[] {
     const minimumDate =
       Date.now() -
@@ -536,8 +441,7 @@ export class ViralVideosService {
 
     return items.filter(
       (
-        video:
-          ViralVideo,
+        video: ViralVideo,
       ): boolean => {
         if (
           video.platform ===
@@ -549,7 +453,8 @@ export class ViralVideosService {
         const publishedTime =
           video.publishedAt
             instanceof Date
-            ? video.publishedAt.getTime()
+            ? video.publishedAt
+                .getTime()
             : new Date(
                 video.publishedAt,
               ).getTime();
@@ -571,32 +476,32 @@ export class ViralVideosService {
   }
 
   /**
-   * Aplica filtro de duração também às fontes
-   * que tenham durationSec disponível.
+   * Filtro de duração.
    *
-   * Vídeos sem informação de duração são mantidos,
-   * pois algumas fontes não disponibilizam esse campo.
+   * O teste de ANY ocorre antes das demais condições.
+   * Por isso não existe outro case ANY no switch.
    */
   private filterByDuration(
     items: ViralVideo[],
-    duration:
-      ViralVideoDuration,
+    duration: ViralVideoDuration,
   ): ViralVideo[] {
     if (
-      duration ===
-      'ANY'
+      duration === 'ANY'
     ) {
       return items;
     }
 
     return items.filter(
       (
-        video:
-          ViralVideo,
+        video: ViralVideo,
       ): boolean => {
         const durationSec =
           video.durationSec;
 
+        /*
+         * Fontes que não informam a duração
+         * permanecem nos resultados.
+         */
         if (
           durationSec ===
             undefined ||
@@ -607,30 +512,23 @@ export class ViralVideosService {
           return true;
         }
 
-        switch (
-          duration
-        ) {
+        switch (duration) {
           case 'SHORT':
             return (
-              durationSec <=
-              240
+              durationSec <= 240
             );
 
           case 'MEDIUM':
             return (
-              durationSec >
-                240 &&
-              durationSec <=
-                1_200
+              durationSec > 240 &&
+              durationSec <= 1_200
             );
 
           case 'LONG':
             return (
-              durationSec >
-              1_200
+              durationSec > 1_200
             );
 
-          case 'ANY':
           default:
             return true;
         }
@@ -639,7 +537,7 @@ export class ViralVideosService {
   }
 
   /**
-   * Remove resultados duplicados da mesma plataforma.
+   * Remove duplicações dentro da mesma plataforma.
    */
   private removeDuplicates(
     items: ViralVideo[],
@@ -650,15 +548,11 @@ export class ViralVideosService {
     const result:
       ViralVideo[] = [];
 
-    for (
-      const video of items
-    ) {
+    for (const video of items) {
       const key =
         `${video.platform}:${video.externalId}`;
 
-      if (
-        seen.has(key)
-      ) {
+      if (seen.has(key)) {
         continue;
       }
 
@@ -676,8 +570,7 @@ export class ViralVideosService {
       new Set<string>(
         items.map(
           (
-            item:
-              ViralVideo,
+            item: ViralVideo,
           ): string =>
             item.platform,
         ),
@@ -686,16 +579,11 @@ export class ViralVideosService {
   }
 
   private safeMetric(
-    value:
-      | number
-      | undefined,
+    value: number | undefined,
   ): number {
     if (
-      value ===
-        undefined ||
-      !Number.isFinite(
-        value,
-      )
+      value === undefined ||
+      !Number.isFinite(value)
     ) {
       return 0;
     }
