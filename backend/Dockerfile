@@ -1,5 +1,5 @@
 # ── Build ─────────────────────────────────────────────────────
-# Debian Bookworm + OpenSSL 3: compatível com Prisma 5.x no Railway.
+# Debian Bookworm + OpenSSL 3: compatível com Prisma 5.x.
 FROM node:20-bookworm-slim AS build
 
 WORKDIR /app
@@ -10,14 +10,25 @@ RUN apt-get update \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY package.json package-lock.json* ./
-RUN npm ci
+# Força o registro público e evita URLs internas presentes
+# no package-lock.json antigo.
+RUN npm config set registry https://registry.npmjs.org/
+
+# Copiamos somente package.json de propósito.
+# O package-lock.json atual não será usado.
+COPY package.json ./
+
+RUN npm install \
+    --no-audit \
+    --no-fund
 
 COPY tsconfig.json ./
 COPY prisma ./prisma
 COPY src ./src
 
-RUN npx prisma generate
+# Usa o Prisma 5.22.0 instalado no package.json.
+RUN npm exec prisma generate
+
 RUN npm run build
 
 
@@ -35,16 +46,27 @@ RUN apt-get update \
       ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev
+RUN npm config set registry https://registry.npmjs.org/
+
+# Novamente, não copiamos o package-lock.json.
+COPY package.json ./
+COPY prisma ./prisma
+
+# Instala apenas dependências necessárias em produção.
+RUN npm install \
+    --omit=dev \
+    --no-audit \
+    --no-fund
+
+# Gera o Prisma Client no ambiente final.
+RUN npm exec prisma generate
 
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 
 RUN mkdir -p \
     /app/storage/work \
-    /app/storage/renders
+    /app/storage/renders \
+    /app/storage/videos
 
 EXPOSE 4000
 
