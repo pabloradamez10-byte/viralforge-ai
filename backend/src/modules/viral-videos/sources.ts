@@ -27,6 +27,7 @@ export interface ViralComment {
 
 export interface ViralVideo {
   externalId: string;
+
   platform:
     | 'YOUTUBE'
     | 'TIKTOK'
@@ -92,7 +93,7 @@ export interface ViralVideo {
   channelOutperformance?: number;
 
   /**
-   * Comentários públicos utilizados para
+   * Comentários públicos usados para
    * enriquecimento editorial.
    */
   topComments?: ViralComment[];
@@ -118,8 +119,7 @@ interface YouTubeChannelStats {
 
 const cacheKey = (
   ...parts: Array<string | number>
-): string =>
-  `viral:${parts.join(':')}`;
+): string => `viral:${parts.join(':')}`;
 
 export class ViralVideoSources {
   /**
@@ -130,9 +130,6 @@ export class ViralVideoSources {
    * 2. videos.list carrega detalhes, duração e estatísticas.
    * 3. channels.list carrega métricas públicas dos canais.
    * 4. commentThreads.list carrega comentários, quando solicitado.
-   *
-   * options é opcional para manter compatibilidade
-   * com o serviço atual.
    */
   async fromYouTube(
     query: string,
@@ -183,13 +180,6 @@ export class ViralVideoSources {
       50,
     );
 
-    /*
-     * Mantém 30 dias como padrão temporário para
-     * não alterar inesperadamente a busca atual.
-     *
-     * O service.ts enviará a janela escolhida
-     * no próximo passo.
-     */
     const timeWindow =
       options.timeWindow ?? '30d';
 
@@ -251,12 +241,15 @@ export class ViralVideoSources {
           query:
             normalizedQuery ||
             '(busca geral)',
+
           region:
             validRegion ??
             'não informada',
+
           language:
             validLanguage ??
             'não informado',
+
           timeWindow,
           duration,
           maxResults: limit,
@@ -283,15 +276,15 @@ export class ViralVideoSources {
           : [];
 
       const videoIds = Array.from(
-        new Set(
+        new Set<string>(
           searchItems
             .map(
-              (item) =>
-                item.id?.videoId,
+              (item: any) =>
+                item?.id?.videoId,
             )
             .filter(
               (
-                videoId,
+                videoId: unknown,
               ): videoId is string =>
                 typeof videoId ===
                   'string' &&
@@ -308,9 +301,13 @@ export class ViralVideoSources {
           {
             query:
               normalizedQuery,
-            region: validRegion,
+
+            region:
+              validRegion,
+
             language:
               validLanguage,
+
             timeWindow,
           },
         );
@@ -324,12 +321,19 @@ export class ViralVideoSources {
           {
             params: {
               key: apiKey,
+
               part:
                 'snippet,statistics,contentDetails,status',
-              id: videoIds.join(','),
-              maxResults: limit,
+
+              id:
+                videoIds.join(','),
+
+              maxResults:
+                limit,
             },
-            timeout: 20_000,
+
+            timeout:
+              20_000,
           },
         );
 
@@ -342,16 +346,16 @@ export class ViralVideoSources {
 
       const channelIds =
         Array.from(
-          new Set(
+          new Set<string>(
             items
               .map(
-                (item) =>
-                  item.snippet
+                (item: any) =>
+                  item?.snippet
                     ?.channelId,
               )
               .filter(
                 (
-                  channelId,
+                  channelId: unknown,
                 ): channelId is string =>
                   typeof channelId ===
                     'string' &&
@@ -371,12 +375,10 @@ export class ViralVideoSources {
               YouTubeChannelStats
             >();
 
-      /*
-       * Buscar comentários de todos os 50 vídeos
-       * criaria muitas chamadas.
-       *
-       * Limitamos aos cinco primeiros resultados
-       * quando includeComments estiver habilitado.
+      /**
+       * Para evitar muitas chamadas,
+       * os comentários são carregados somente
+       * para os cinco primeiros vídeos.
        */
       const commentsByVideo =
         includeComments
@@ -385,8 +387,20 @@ export class ViralVideoSources {
               items
                 .slice(0, 5)
                 .map(
-                  (item) =>
-                    String(item.id),
+                  (
+                    item: any,
+                  ): string =>
+                    String(
+                      item?.id ??
+                        '',
+                    ),
+                )
+                .filter(
+                  (
+                    videoId: string,
+                  ) =>
+                    videoId.length >
+                    0,
                 ),
             )
           : new Map<
@@ -394,260 +408,308 @@ export class ViralVideoSources {
               ViralComment[]
             >();
 
-      const results = items
-        .filter(
-          (item) =>
-            typeof item.id ===
-              'string' &&
-            item.id.length > 0,
-        )
-        .map(
-          (
-            item,
-          ): ViralVideo => {
-            const snippet =
-              item.snippet ?? {};
+      const results =
+        items
+          .filter(
+            (
+              item: any,
+            ): boolean =>
+              typeof item?.id ===
+                'string' &&
+              item.id.length > 0,
+          )
+          .map(
+            (
+              item: any,
+            ): ViralVideo => {
+              const snippet =
+                item?.snippet ?? {};
 
-            const statistics =
-              item.statistics ?? {};
+              const statistics =
+                item?.statistics ?? {};
 
-            const contentDetails =
-              item.contentDetails ?? {};
+              const contentDetails =
+                item?.contentDetails ??
+                {};
 
-            const title =
-              this.cleanText(
-                snippet.title,
-              );
+              const title =
+                this.cleanText(
+                  snippet.title,
+                );
 
-            const description =
-              this.cleanText(
-                snippet.description,
-              ).slice(0, 1_500);
+              const description =
+                this.cleanText(
+                  snippet.description,
+                ).slice(
+                  0,
+                  1_500,
+                );
 
-            const apiTags =
-              Array.isArray(
-                snippet.tags,
-              )
-                ? snippet.tags
-                    .filter(
-                      (
-                        tag: unknown,
-                      ): tag is string =>
-                        typeof tag ===
-                        'string',
-                    )
-                    .map((tag) =>
+              const rawTags:
+                unknown[] =
+                Array.isArray(
+                  snippet.tags,
+                )
+                  ? snippet.tags
+                  : [];
+
+              const apiTags =
+                rawTags
+                  .filter(
+                    (
+                      tag: unknown,
+                    ): tag is string =>
+                      typeof tag ===
+                      'string',
+                  )
+                  .map(
+                    (
+                      tag: string,
+                    ): string =>
                       this.cleanText(
                         tag,
                       ),
+                  )
+                  .filter(
+                    (
+                      tag: string,
+                    ): boolean =>
+                      tag.length > 0,
+                  );
+
+              const hashtags =
+                includeHashtags
+                  ? this.extractHashtags(
+                      `${title}\n${description}`,
                     )
-                    .filter(Boolean)
-                : [];
+                  : [];
 
-            const hashtags =
-              includeHashtags
-                ? this.extractHashtags(
-                    `${title}\n${description}`,
-                  )
-                : [];
+              const tags =
+                this.uniqueStrings([
+                  ...apiTags,
+                  ...hashtags,
+                ]).slice(
+                  0,
+                  50,
+                );
 
-            const tags =
-              this.uniqueStrings([
-                ...apiTags,
-                ...hashtags,
-              ]).slice(0, 50);
+              const publishedAt =
+                this.parseDate(
+                  snippet.publishedAt,
+                );
 
-            const publishedAt =
-              this.parseDate(
-                snippet.publishedAt,
-              );
+              const ageMs =
+                Math.max(
+                  Date.now() -
+                    publishedAt.getTime(),
 
-            const now =
-              Date.now();
+                  60 * 1000,
+                );
 
-            const ageMs =
-              Math.max(
-                now -
-                  publishedAt.getTime(),
-                60 * 1000,
-              );
+              /**
+               * Evita valores irreais em vídeos
+               * publicados há poucos segundos.
+               */
+              const ageHours =
+                Math.max(
+                  ageMs /
+                    (
+                      60 *
+                      60 *
+                      1000
+                    ),
 
-            /*
-             * Evita divisões exageradas em vídeos
-             * publicados há poucos segundos.
-             */
-            const ageHours =
-              Math.max(
-                ageMs /
-                  (60 *
-                    60 *
-                    1000),
-                0.25,
-              );
+                  0.25,
+                );
 
-            const views =
-              this.safeNumber(
-                statistics.viewCount,
-              );
+              const views =
+                this.safeNumber(
+                  statistics.viewCount,
+                );
 
-            const likes =
-              this.safeNumber(
-                statistics.likeCount,
-              );
+              const likes =
+                this.safeNumber(
+                  statistics.likeCount,
+                );
 
-            const comments =
-              this.safeNumber(
-                statistics.commentCount,
-              );
+              const comments =
+                this.safeNumber(
+                  statistics.commentCount,
+                );
 
-            const durationSec =
-              this.parseIsoDuration(
-                contentDetails.duration,
-              );
+              const durationSec =
+                this.parseIsoDuration(
+                  contentDetails.duration,
+                );
 
-            const channelId =
-              typeof snippet.channelId ===
-              'string'
-                ? snippet.channelId
-                : undefined;
+              const channelId =
+                typeof snippet.channelId ===
+                  'string'
+                  ? snippet.channelId
+                  : undefined;
 
-            const channel =
-              channelId
-                ? channelStats.get(
-                    channelId,
-                  )
-                : undefined;
+              const channel =
+                channelId
+                  ? channelStats.get(
+                      channelId,
+                    )
+                  : undefined;
 
-            const subscribers =
-              channel?.subscribers;
+              const subscribers =
+                channel?.subscribers;
 
-            const likeRate =
-              views > 0
-                ? likes / views
-                : 0;
+              const likeRate =
+                views > 0
+                  ? likes / views
+                  : 0;
 
-            const commentRate =
-              views > 0
-                ? comments / views
-                : 0;
+              const commentRate =
+                views > 0
+                  ? comments /
+                    views
+                  : 0;
 
-            const engagementRate =
-              views > 0
-                ? (likes +
-                    comments) /
-                  views
-                : 0;
+              const engagementRate =
+                views > 0
+                  ? (
+                      likes +
+                      comments
+                    ) /
+                    views
+                  : 0;
 
-            const channelOutperformance =
-              subscribers &&
-              subscribers > 0
-                ? views /
-                  subscribers
-                : undefined;
+              const channelOutperformance =
+                subscribers &&
+                subscribers > 0
+                  ? views /
+                    subscribers
+                  : undefined;
 
-            return {
-              externalId:
-                item.id,
+              return {
+                externalId:
+                  String(item.id),
 
-              platform:
-                'YOUTUBE',
+                platform:
+                  'YOUTUBE',
 
-              title,
+                title,
 
-              description:
-                description ||
-                undefined,
+                description:
+                  description ||
+                  undefined,
 
-              channel:
-                this.cleanText(
-                  snippet.channelTitle,
-                ) || undefined,
+                channel:
+                  this.cleanText(
+                    snippet.channelTitle,
+                  ) ||
+                  undefined,
 
-              channelId,
+                channelId,
 
-              url:
-                `https://www.youtube.com/watch?v=${item.id}`,
+                url:
+                  `https://www.youtube.com/watch?v=${item.id}`,
 
-              thumbnailUrl:
-                snippet.thumbnails
-                  ?.maxres?.url ??
-                snippet.thumbnails
-                  ?.standard?.url ??
-                snippet.thumbnails
-                  ?.high?.url ??
-                snippet.thumbnails
-                  ?.medium?.url ??
-                snippet.thumbnails
-                  ?.default?.url,
+                thumbnailUrl:
+                  snippet
+                    .thumbnails
+                    ?.maxres
+                    ?.url ??
+                  snippet
+                    .thumbnails
+                    ?.standard
+                    ?.url ??
+                  snippet
+                    .thumbnails
+                    ?.high
+                    ?.url ??
+                  snippet
+                    .thumbnails
+                    ?.medium
+                    ?.url ??
+                  snippet
+                    .thumbnails
+                    ?.default
+                    ?.url,
 
-              views,
-              likes,
-              comments,
+                views,
+                likes,
+                comments,
 
-              publishedAt,
+                publishedAt,
 
-              language:
-                snippet
-                  .defaultAudioLanguage ??
-                snippet
-                  .defaultLanguage ??
-                validLanguage ??
-                language,
+                language:
+                  snippet
+                    .defaultAudioLanguage ??
+                  snippet
+                    .defaultLanguage ??
+                  validLanguage ??
+                  language,
 
-              region:
-                validRegion ??
-                region,
+                region:
+                  validRegion ??
+                  region,
 
-              tags,
-              hashtags,
+                tags,
+                hashtags,
 
-              durationSec,
-              ageHours,
-
-              viewsPerHour:
-                views / ageHours,
-
-              likesPerHour:
-                likes / ageHours,
-
-              commentsPerHour:
-                comments /
+                durationSec,
                 ageHours,
 
-              likeRate,
-              commentRate,
-              engagementRate,
+                viewsPerHour:
+                  views /
+                  ageHours,
 
-              channelSubscribers:
-                channel?.subscribers,
+                likesPerHour:
+                  likes /
+                  ageHours,
 
-              channelTotalViews:
-                channel?.totalViews,
+                commentsPerHour:
+                  comments /
+                  ageHours,
 
-              channelVideoCount:
-                channel?.videoCount,
+                likeRate,
+                commentRate,
+                engagementRate,
 
-              channelHiddenSubscribers:
-                channel
-                  ?.hiddenSubscribers,
+                channelSubscribers:
+                  channel
+                    ?.subscribers,
 
-              channelOutperformance,
+                channelTotalViews:
+                  channel
+                    ?.totalViews,
 
-              topComments:
-                commentsByVideo.get(
-                  item.id,
-                ) ?? [],
+                channelVideoCount:
+                  channel
+                    ?.videoCount,
 
-              raw: {
-                video: item,
-                channel:
-                  channel ?? null,
-                searchWindow:
-                  timeWindow,
-              },
-            };
-          },
-        );
+                channelHiddenSubscribers:
+                  channel
+                    ?.hiddenSubscribers,
+
+                channelOutperformance,
+
+                topComments:
+                  commentsByVideo.get(
+                    String(
+                      item.id,
+                    ),
+                  ) ?? [],
+
+                raw: {
+                  video:
+                    item,
+
+                  channel:
+                    channel ??
+                    null,
+
+                  searchWindow:
+                    timeWindow,
+                },
+              };
+            },
+          );
 
       console.log(
         `✅ YouTube retornou ${results.length} vídeos enriquecidos.`,
@@ -666,17 +728,23 @@ export class ViralVideoSources {
             status:
               error.response
                 ?.status,
+
             message:
               error.message,
+
             response:
               error.response
                 ?.data,
+
             query:
               normalizedQuery,
+
             region:
               validRegion,
+
             language:
               validLanguage,
+
             timeWindow,
           },
         );
@@ -694,8 +762,8 @@ export class ViralVideoSources {
   /**
    * TikTok Creative Center.
    *
-   * Endpoint público e não documentado oficialmente
-   * como API estável. Pode mudar sem aviso.
+   * Esse endpoint público não é uma API oficial estável
+   * e pode mudar sem aviso.
    */
   async fromTikTok(
     query: string,
@@ -708,13 +776,14 @@ export class ViralVideoSources {
         .trim()
         .toUpperCase();
 
-    const limit = Math.min(
-      Math.max(
-        maxResults || 25,
-        1,
-      ),
-      50,
-    );
+    const limit =
+      Math.min(
+        Math.max(
+          maxResults || 25,
+          1,
+        ),
+        50,
+      );
 
     const url =
       'https://ads.tiktok.com/business/creativecenter/api/v1/' +
@@ -728,37 +797,54 @@ export class ViralVideoSources {
             params: {
               region:
                 regionCode,
-              page: 1,
+
+              page:
+                1,
+
               limit,
             },
+
             headers: {
               'User-Agent':
                 'Mozilla/5.0 (compatible; ViralForgeAI/1.0)',
+
               Accept:
                 'application/json',
             },
-            timeout: 20_000,
+
+            timeout:
+              20_000,
           },
         );
 
       const list: any[] =
-        data?.data?.list ??
-        data?.list ??
-        [];
+        Array.isArray(
+          data?.data?.list,
+        )
+          ? data.data.list
+          : Array.isArray(
+                data?.list,
+              )
+            ? data.list
+            : [];
 
       const normalizedQuery =
         query
           .trim()
           .toLowerCase();
 
-      const filtered =
+      const filtered:
+        any[] =
         normalizedQuery
           ? list.filter(
-              (item) => {
+              (
+                item: any,
+              ): boolean => {
                 const name =
                   String(
-                    item.hashtag_name ??
-                      item.name ??
+                    item
+                      ?.hashtag_name ??
+                      item?.name ??
                       '',
                   ).toLowerCase();
 
@@ -770,34 +856,42 @@ export class ViralVideoSources {
           : list;
 
       return filtered
-        .slice(0, limit)
+        .slice(
+          0,
+          limit,
+        )
         .map(
           (
             item: any,
           ): ViralVideo => {
             const name =
               this.cleanText(
-                item.hashtag_name ??
-                  item.name ??
+                item
+                  ?.hashtag_name ??
+                  item?.name ??
                   '',
               );
 
             const views =
               this.safeNumber(
-                item.video_views ??
-                  item.views,
+                item
+                  ?.video_views ??
+                  item?.views,
               );
 
             const videoCount =
               this.safeNumber(
-                item.publish_cnt ??
-                  item.video_count,
+                item
+                  ?.publish_cnt ??
+                  item
+                    ?.video_count,
               );
 
             return {
               externalId:
                 String(
-                  item.hashtag_id ??
+                  item
+                    ?.hashtag_id ??
                     name,
                 ),
 
@@ -825,6 +919,7 @@ export class ViralVideoSources {
                 new Date(),
 
               language,
+
               region:
                 regionCode,
 
@@ -838,7 +933,8 @@ export class ViralVideoSources {
                   ? [name]
                   : [],
 
-              raw: item,
+              raw:
+                item,
             };
           },
         );
@@ -854,8 +950,10 @@ export class ViralVideoSources {
             status:
               error.response
                 ?.status,
+
             message:
               error.message,
+
             response:
               error.response
                 ?.data,
@@ -892,30 +990,45 @@ export class ViralVideoSources {
         return [];
       }
 
-      const limit = Math.min(
-        Math.max(
-          maxResults || 25,
-          1,
-        ),
-        100,
-      );
+      const limit =
+        Math.min(
+          Math.max(
+            maxResults || 25,
+            1,
+          ),
+          100,
+        );
 
       const url =
         query.trim()
           ? 'https://oauth.reddit.com/search'
           : 'https://oauth.reddit.com/r/all/top';
 
-      const params =
+      const params:
+        Record<
+          string,
+          string | number
+        > =
         query.trim()
           ? {
-              q: query.trim(),
-              sort: 'top',
-              t: 'month',
+              q:
+                query.trim(),
+
+              sort:
+                'top',
+
+              t:
+                'month',
+
               limit,
-              type: 'link',
+
+              type:
+                'link',
             }
           : {
-              t: 'week',
+              t:
+                'week',
+
               limit,
             };
 
@@ -924,37 +1037,45 @@ export class ViralVideoSources {
           url,
           {
             params,
+
             headers: {
               Authorization:
                 `Bearer ${token}`,
+
               'User-Agent':
                 env.REDDIT_USER_AGENT,
             },
-            timeout: 20_000,
+
+            timeout:
+              20_000,
           },
         );
 
       const children: any[] =
-        data?.data?.children ??
-        [];
+        Array.isArray(
+          data?.data?.children,
+        )
+          ? data.data.children
+          : [];
 
       return children
         .map(
           (
-            child,
+            child: any,
           ): ViralVideo | null => {
             const item =
               child?.data ?? {};
 
             const destination =
               String(
-                item.url_overridden_by_dest ??
-                  item.url ??
+                item
+                  ?.url_overridden_by_dest ??
+                  item?.url ??
                   '',
               );
 
             const isVideo =
-              item.is_video ===
+              item?.is_video ===
                 true ||
               /reddit\.com\/video|v\.redd\.it|\.mp4(?:$|\?)/i.test(
                 destination,
@@ -964,58 +1085,76 @@ export class ViralVideoSources {
               return null;
             }
 
-            const publishedAt =
-              new Date(
-                this.safeNumber(
-                  item.created_utc,
-                ) * 1000,
+            const timestamp =
+              this.safeNumber(
+                item
+                  ?.created_utc,
               );
+
+            const publishedAt =
+              timestamp > 0
+                ? new Date(
+                    timestamp *
+                      1000,
+                  )
+                : new Date();
 
             const ageHours =
               Math.max(
-                (Date.now() -
-                  publishedAt.getTime()) /
-                  (60 *
+                (
+                  Date.now() -
+                  publishedAt.getTime()
+                ) /
+                  (
                     60 *
-                    1000),
+                    60 *
+                    1000
+                  ),
+
                 0.25,
               );
 
             const views =
               this.safeNumber(
-                item.view_count ??
-                  item.score,
+                item
+                  ?.view_count ??
+                  item?.score,
               );
 
             const likes =
               this.safeNumber(
-                item.ups,
+                item?.ups,
               );
 
             const comments =
               this.safeNumber(
-                item.num_comments,
+                item
+                  ?.num_comments,
               );
 
             const title =
               this.cleanText(
-                item.title,
+                item?.title,
               );
 
             const description =
               this.cleanText(
-                item.selftext,
-              ).slice(0, 1_000);
+                item?.selftext,
+              ).slice(
+                0,
+                1_000,
+              );
 
             const subreddit =
               this.cleanText(
-                item.subreddit,
+                item?.subreddit,
               );
 
             return {
               externalId:
                 String(
-                  item.id ?? '',
+                  item?.id ??
+                    '',
                 ),
 
               platform:
@@ -1033,7 +1172,7 @@ export class ViralVideoSources {
 
               url:
                 destination ||
-                `https://reddit.com${item.permalink ?? ''}`,
+                `https://reddit.com${item?.permalink ?? ''}`,
 
               thumbnailUrl:
                 this.getRedditThumbnail(
@@ -1048,10 +1187,12 @@ export class ViralVideoSources {
               ageHours,
 
               viewsPerHour:
-                views / ageHours,
+                views /
+                ageHours,
 
               likesPerHour:
-                likes / ageHours,
+                likes /
+                ageHours,
 
               commentsPerHour:
                 comments /
@@ -1059,7 +1200,8 @@ export class ViralVideoSources {
 
               likeRate:
                 views > 0
-                  ? likes / views
+                  ? likes /
+                    views
                   : 0,
 
               commentRate:
@@ -1070,8 +1212,10 @@ export class ViralVideoSources {
 
               engagementRate:
                 views > 0
-                  ? (likes +
-                      comments) /
+                  ? (
+                      likes +
+                      comments
+                    ) /
                     views
                   : 0,
 
@@ -1089,22 +1233,25 @@ export class ViralVideoSources {
 
               durationSec:
                 this.safeOptionalNumber(
-                  item.secure_media
+                  item
+                    ?.secure_media
                     ?.reddit_video
                     ?.duration,
                 ),
 
-              raw: item,
+              raw:
+                item,
             };
           },
         )
         .filter(
           (
-            item,
+            item: ViralVideo | null,
           ): item is ViralVideo =>
-            item !== null &&
-            item.externalId.length >
-              0,
+            item !==
+              null &&
+            item.externalId
+              .length > 0,
         );
     } catch (error: unknown) {
       if (
@@ -1118,8 +1265,10 @@ export class ViralVideoSources {
             status:
               error.response
                 ?.status,
+
             message:
               error.message,
+
             response:
               error.response
                 ?.data,
@@ -1145,13 +1294,15 @@ export class ViralVideoSources {
       YouTubeChannelStats
     >
   > {
-    const result = new Map<
-      string,
-      YouTubeChannelStats
-    >();
+    const result =
+      new Map<
+        string,
+        YouTubeChannelStats
+      >();
 
     if (
-      channelIds.length === 0
+      channelIds.length ===
+      0
     ) {
       return result;
     }
@@ -1162,15 +1313,26 @@ export class ViralVideoSources {
           'https://www.googleapis.com/youtube/v3/channels',
           {
             params: {
-              key: apiKey,
+              key:
+                apiKey,
+
               part:
                 'snippet,statistics',
-              id: channelIds
-                .slice(0, 50)
-                .join(','),
-              maxResults: 50,
+
+              id:
+                channelIds
+                  .slice(
+                    0,
+                    50,
+                  )
+                  .join(','),
+
+              maxResults:
+                50,
             },
-            timeout: 20_000,
+
+            timeout:
+              20_000,
           },
         );
 
@@ -1186,7 +1348,8 @@ export class ViralVideoSources {
       ) {
         const channelId =
           String(
-            item.id ?? '',
+            item?.id ??
+              '',
           );
 
         if (!channelId) {
@@ -1194,11 +1357,12 @@ export class ViralVideoSources {
         }
 
         const statistics =
-          item.statistics ?? {};
+          item?.statistics ??
+          {};
 
         const hiddenSubscribers =
           statistics
-            .hiddenSubscriberCount ===
+            ?.hiddenSubscriberCount ===
           true;
 
         result.set(
@@ -1211,17 +1375,19 @@ export class ViralVideoSources {
                 ? undefined
                 : this.safeOptionalNumber(
                     statistics
-                      .subscriberCount,
+                      ?.subscriberCount,
                   ),
 
             totalViews:
               this.safeOptionalNumber(
-                statistics.viewCount,
+                statistics
+                  ?.viewCount,
               ),
 
             videoCount:
               this.safeOptionalNumber(
-                statistics.videoCount,
+                statistics
+                  ?.videoCount,
               ),
 
             hiddenSubscribers,
@@ -1240,8 +1406,10 @@ export class ViralVideoSources {
             status:
               error.response
                 ?.status,
+
             message:
               error.message,
+
             response:
               error.response
                 ?.data,
@@ -1262,12 +1430,16 @@ export class ViralVideoSources {
     apiKey: string,
     videoIds: string[],
   ): Promise<
-    Map<string, ViralComment[]>
-  > {
-    const result = new Map<
+    Map<
       string,
       ViralComment[]
-    >();
+    >
+  > {
+    const result =
+      new Map<
+        string,
+        ViralComment[]
+      >();
 
     for (
       const videoId of videoIds
@@ -1278,16 +1450,26 @@ export class ViralVideoSources {
             'https://www.googleapis.com/youtube/v3/commentThreads',
             {
               params: {
-                key: apiKey,
-                part: 'snippet',
+                key:
+                  apiKey,
+
+                part:
+                  'snippet',
+
                 videoId,
-                maxResults: 10,
+
+                maxResults:
+                  10,
+
                 order:
                   'relevance',
+
                 textFormat:
                   'plainText',
               },
-              timeout: 15_000,
+
+              timeout:
+                15_000,
             },
           );
 
@@ -1302,10 +1484,11 @@ export class ViralVideoSources {
           items
             .map(
               (
-                item,
+                item: any,
               ): ViralComment | null => {
                 const snippet =
-                  item.snippet
+                  item
+                    ?.snippet
                     ?.topLevelComment
                     ?.snippet;
 
@@ -1316,9 +1499,9 @@ export class ViralVideoSources {
                 const text =
                   this.cleanText(
                     snippet
-                      .textDisplay ??
+                      ?.textDisplay ??
                       snippet
-                        .textOriginal,
+                        ?.textOriginal,
                   );
 
                 if (!text) {
@@ -1335,27 +1518,31 @@ export class ViralVideoSources {
                   author:
                     this.cleanText(
                       snippet
-                        .authorDisplayName,
+                        ?.authorDisplayName,
                     ) ||
                     undefined,
 
                   likes:
                     this.safeNumber(
-                      snippet.likeCount,
+                      snippet
+                        ?.likeCount,
                     ),
 
                   publishedAt:
                     this.parseOptionalDate(
-                      snippet.publishedAt,
+                      snippet
+                        ?.publishedAt,
                     ),
                 };
               },
             )
             .filter(
               (
-                comment,
+                comment:
+                  ViralComment | null,
               ): comment is ViralComment =>
-                comment !== null,
+                comment !==
+                null,
             );
 
         result.set(
@@ -1363,9 +1550,9 @@ export class ViralVideoSources {
           comments,
         );
       } catch (error: unknown) {
-        /*
+        /**
          * Comentários podem estar desativados.
-         * A ausência deles não deve cancelar toda a busca.
+         * Isso não deve cancelar toda a busca.
          */
         if (
           axios.isAxiosError(
@@ -1378,9 +1565,11 @@ export class ViralVideoSources {
               status:
                 error.response
                   ?.status,
+
               reason:
                 error.response
-                  ?.data?.error
+                  ?.data
+                  ?.error
                   ?.errors?.[0]
                   ?.reason,
             },
@@ -1424,19 +1613,29 @@ export class ViralVideoSources {
       ) ?? [];
 
     return this.uniqueStrings(
-      matches.map((match) =>
-        match
-          .replace(/^#+/, '')
-          .trim(),
+      matches.map(
+        (
+          match: string,
+        ): string =>
+          match
+            .replace(
+              /^#+/,
+              '',
+            )
+            .trim(),
       ),
-    ).slice(0, 30);
+    ).slice(
+      0,
+      30,
+    );
   }
 
   private parseIsoDuration(
     value: unknown,
   ): number | undefined {
     if (
-      typeof value !== 'string'
+      typeof value !==
+      'string'
     ) {
       return undefined;
     }
@@ -1451,25 +1650,44 @@ export class ViralVideoSources {
     }
 
     const days =
-      Number(match[1] ?? 0);
+      Number(
+        match[1] ??
+          0,
+      );
 
     const hours =
-      Number(match[2] ?? 0);
+      Number(
+        match[2] ??
+          0,
+      );
 
     const minutes =
-      Number(match[3] ?? 0);
+      Number(
+        match[3] ??
+          0,
+      );
 
     const seconds =
-      Number(match[4] ?? 0);
+      Number(
+        match[4] ??
+          0,
+      );
 
     const total =
-      days * 86_400 +
-      hours * 3_600 +
-      minutes * 60 +
+      days *
+        86_400 +
+      hours *
+        3_600 +
+      minutes *
+        60 +
       seconds;
 
-    return Number.isFinite(total)
-      ? Math.round(total)
+    return Number.isFinite(
+      total,
+    )
+      ? Math.round(
+          total,
+        )
       : undefined;
   }
 
@@ -1477,8 +1695,11 @@ export class ViralVideoSources {
     value: unknown,
   ): Date {
     const date =
-      typeof value === 'string'
-        ? new Date(value)
+      typeof value ===
+      'string'
+        ? new Date(
+            value,
+          )
         : new Date();
 
     return Number.isNaN(
@@ -1492,13 +1713,16 @@ export class ViralVideoSources {
     value: unknown,
   ): Date | undefined {
     if (
-      typeof value !== 'string'
+      typeof value !==
+      'string'
     ) {
       return undefined;
     }
 
     const date =
-      new Date(value);
+      new Date(
+        value,
+      );
 
     return Number.isNaN(
       date.getTime(),
@@ -1511,7 +1735,8 @@ export class ViralVideoSources {
     value: unknown,
   ): string {
     if (
-      typeof value !== 'string'
+      typeof value !==
+      'string'
     ) {
       return '';
     }
@@ -1552,12 +1777,18 @@ export class ViralVideoSources {
     value: unknown,
   ): number {
     const number =
-      Number(value ?? 0);
+      Number(
+        value ??
+          0,
+      );
 
     return Number.isFinite(
       number,
     )
-      ? Math.max(number, 0)
+      ? Math.max(
+          number,
+          0,
+        )
       : 0;
   }
 
@@ -1565,20 +1796,28 @@ export class ViralVideoSources {
     value: unknown,
   ): number | undefined {
     if (
-      value === undefined ||
-      value === null ||
-      value === ''
+      value ===
+        undefined ||
+      value ===
+        null ||
+      value ===
+        ''
     ) {
       return undefined;
     }
 
     const number =
-      Number(value);
+      Number(
+        value,
+      );
 
     return Number.isFinite(
       number,
     )
-      ? Math.max(number, 0)
+      ? Math.max(
+          number,
+          0,
+        )
       : undefined;
   }
 
@@ -1588,18 +1827,22 @@ export class ViralVideoSources {
     const seen =
       new Set<string>();
 
-    const result: string[] =
-      [];
+    const result:
+      string[] = [];
 
     for (
       const value of values
     ) {
       const cleaned =
-        this.cleanText(value);
+        this.cleanText(
+          value,
+        );
 
       const normalized =
         cleaned
-          .normalize('NFD')
+          .normalize(
+            'NFD',
+          )
           .replace(
             /[\u0300-\u036f]/g,
             '',
@@ -1609,13 +1852,20 @@ export class ViralVideoSources {
       if (
         !cleaned ||
         !normalized ||
-        seen.has(normalized)
+        seen.has(
+          normalized,
+        )
       ) {
         continue;
       }
 
-      seen.add(normalized);
-      result.push(cleaned);
+      seen.add(
+        normalized,
+      );
+
+      result.push(
+        cleaned,
+      );
     }
 
     return result;
@@ -1625,7 +1875,8 @@ export class ViralVideoSources {
     item: any,
   ): string | undefined {
     const previewUrl =
-      item.preview
+      item
+        ?.preview
         ?.images?.[0]
         ?.source?.url;
 
@@ -1643,7 +1894,7 @@ export class ViralVideoSources {
     }
 
     const thumbnail =
-      item.thumbnail;
+      item?.thumbnail;
 
     return typeof thumbnail ===
         'string' &&
@@ -1673,7 +1924,8 @@ export class ViralVideoSources {
       this.redditToken &&
       this.redditToken
         .expiresAt >
-        Date.now() + 60_000
+        Date.now() +
+          60_000
     ) {
       return this.redditToken
         .token;
@@ -1690,30 +1942,38 @@ export class ViralVideoSources {
       const { data } =
         await axios.post(
           'https://www.reddit.com/api/v1/access_token',
+
           'grant_type=client_credentials',
+
           {
             headers: {
               Authorization:
                 `Basic ${auth}`,
+
               'Content-Type':
                 'application/x-www-form-urlencoded',
+
               'User-Agent':
                 env.REDDIT_USER_AGENT,
             },
-            timeout: 15_000,
+
+            timeout:
+              15_000,
           },
         );
 
       const token =
         String(
-          data.access_token ??
+          data
+            ?.access_token ??
             '',
         );
 
       const expiresIn =
         Number(
-          data.expires_in ??
-            3600,
+          data
+            ?.expires_in ??
+            3_600,
         );
 
       if (!token) {
@@ -1722,9 +1982,11 @@ export class ViralVideoSources {
 
       this.redditToken = {
         token,
+
         expiresAt:
           Date.now() +
-          expiresIn * 1000,
+          expiresIn *
+            1000,
       };
 
       return token;
