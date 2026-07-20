@@ -4,6 +4,11 @@ FROM node:20-bookworm-slim AS build
 
 WORKDIR /app
 
+# Garante que dependências de desenvolvimento sejam instaladas neste estágio,
+# mesmo quando a plataforma injeta NODE_ENV=production ou npm omit=dev.
+ENV NODE_ENV=development
+ENV NPM_CONFIG_PRODUCTION=false
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       openssl \
@@ -15,6 +20,7 @@ RUN npm config set registry https://registry.npmjs.org/
 COPY package.json package-lock.json ./
 
 RUN npm ci \
+    --include=dev \
     --no-audit \
     --no-fund
 
@@ -22,7 +28,9 @@ COPY tsconfig.json ./
 COPY prisma ./prisma
 COPY src ./src
 
-RUN npm exec prisma generate
+# Usa exclusivamente o Prisma CLI fixado no package-lock (5.22.0).
+# Não permite download automático de uma versão global/incompatível.
+RUN ./node_modules/.bin/prisma generate
 RUN npm run build
 
 
@@ -51,8 +59,7 @@ RUN npm ci \
     --no-fund
 
 # O Prisma Client já foi gerado no estágio de build com a versão fixada
-# pelo projeto. Copiamos os artefatos gerados para evitar que `npm exec`
-# baixe uma versão mais nova do Prisma durante o build da imagem runtime.
+# pelo projeto. Copiamos os artefatos gerados para a imagem final.
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 
 COPY --from=build /app/dist ./dist
