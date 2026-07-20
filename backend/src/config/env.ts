@@ -25,7 +25,7 @@ const schema = z.object({
     .string()
     .url()
     .default(
-      'http://localhost:5173',
+      'https://viralforge-ai-five.vercel.app',
     ),
 
   API_URL: z
@@ -81,12 +81,6 @@ const schema = z.object({
     .string()
     .min(1),
 
-  /**
-   * Provedor principal.
-   *
-   * O ai.service.ts usará os demais provedores
-   * como fallback automático.
-   */
   AI_PROVIDER: z
     .enum([
       'gemini',
@@ -98,9 +92,6 @@ const schema = z.object({
     ])
     .default('gemini'),
 
-  /**
-   * Google Gemini.
-   */
   GEMINI_API_KEY: z
     .string()
     .optional()
@@ -112,9 +103,6 @@ const schema = z.object({
       'gemini-2.5-flash',
     ),
 
-  /**
-   * Groq.
-   */
   GROQ_API_KEY: z
     .string()
     .optional()
@@ -126,9 +114,6 @@ const schema = z.object({
       'llama-3.3-70b-versatile',
     ),
 
-  /**
-   * OpenRouter.
-   */
   OPENROUTER_API_KEY: z
     .string()
     .optional()
@@ -154,9 +139,6 @@ const schema = z.object({
       'ViralForge AI',
     ),
 
-  /**
-   * OpenAI.
-   */
   OPENAI_API_KEY: z
     .string()
     .optional()
@@ -168,9 +150,6 @@ const schema = z.object({
       'gpt-4o-mini',
     ),
 
-  /**
-   * Anthropic.
-   */
   ANTHROPIC_API_KEY: z
     .string()
     .optional()
@@ -182,9 +161,6 @@ const schema = z.object({
       'claude-3-5-sonnet-20241022',
     ),
 
-  /**
-   * Ollama local.
-   */
   OLLAMA_BASE_URL: z
     .string()
     .url()
@@ -196,9 +172,6 @@ const schema = z.object({
     .string()
     .default('llama3.1'),
 
-  /**
-   * APIs de descoberta e mídia.
-   */
   YOUTUBE_API_KEY: z
     .string()
     .optional()
@@ -235,9 +208,6 @@ const schema = z.object({
     .optional()
     .default(''),
 
-  /**
-   * Controle de execução automática.
-   */
   ENABLE_CRON_JOBS: z.coerce
     .boolean()
     .default(false),
@@ -254,9 +224,6 @@ const schema = z.object({
     .boolean()
     .default(false),
 
-  /**
-   * Limites gerais.
-   */
   RATE_LIMIT_WINDOW_MS: z.coerce
     .number()
     .int()
@@ -272,7 +239,7 @@ const schema = z.object({
   CORS_ORIGINS: z
     .string()
     .default(
-      'http://localhost:5173',
+      'https://viralforge-ai-five.vercel.app,http://localhost:5173',
     ),
 });
 
@@ -295,18 +262,14 @@ if (!parsed.success) {
 export const env =
   parsed.data;
 
-export const corsOrigins =
-  env.CORS_ORIGINS
-    .split(',')
-    .map(
-      (
-        origin: string,
-      ): string =>
-        origin.trim(),
-    )
-    .filter(
-      (
-        origin: string,
-      ): boolean =>
-        origin.length > 0,
-    );
+export const corsOrigins = Array.from(
+  new Set(
+    [
+      ...env.CORS_ORIGINS
+        .split(',')
+        .map((origin: string): string => origin.trim())
+        .filter((origin: string): boolean => origin.length > 0),
+      env.APP_URL,
+    ],
+  ),
+);
