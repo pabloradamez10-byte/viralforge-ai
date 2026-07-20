@@ -338,11 +338,7 @@ export class VideoRenderService {
         .split(/\s+/)
         .filter(Boolean).length;
 
-      return Math.max(
-        wordCount,
-        scene.durationSec,
-        1,
-      );
+      return Math.max(wordCount, 1);
     });
 
     const totalWeight = weights.reduce(
@@ -359,13 +355,10 @@ export class VideoRenderService {
       const durationSec = isLastScene
         ? Math.max(
             narrationDurationSec - allocated,
-            0.75,
+            0,
           )
-        : Math.max(
-            (narrationDurationSec * (weights[index] ?? 1)) /
-              totalWeight,
-            0.75,
-          );
+        : (narrationDurationSec * (weights[index] ?? 1)) /
+          totalWeight;
 
       const roundedDuration =
         Math.round(durationSec * 100) / 100;

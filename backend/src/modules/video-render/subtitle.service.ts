@@ -68,7 +68,7 @@ export class SubtitleService {
         return [
           String(index + 1),
           `${this.formatTime(segment.startSec)} --> ${this.formatTime(segment.endSec)}`,
-          this.sanitizeText(segment.text),
+          this.sanitizeCaptionText(segment.text),
           '',
         ].join('\n');
       })
@@ -128,7 +128,7 @@ export class SubtitleService {
 
         const blockDuration = isLastBlock
           ? cursor + durationSec - sceneCursor
-          : Math.min(rawDuration, 2.2);
+          : rawDuration;
 
         const endSec = isLastBlock
           ? cursor + durationSec
@@ -137,7 +137,7 @@ export class SubtitleService {
               cursor + durationSec,
             );
 
-        if (endSec - sceneCursor >= 0.25) {
+        if (endSec - sceneCursor >= 0.1) {
           segments.push({
             startSec: sceneCursor,
             endSec,
@@ -317,6 +317,23 @@ export class SubtitleService {
       .replace(/\r/g, '\n')
       .replace(/\s+/g, ' ')
       .trim();
+  }
+
+  private sanitizeCaptionText(
+    text: string,
+  ): string {
+    return text
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map((line) =>
+        line
+          .replace(/[ \t]+/g, ' ')
+          .trim(),
+      )
+      .filter(Boolean)
+      .slice(0, 2)
+      .join('\n');
   }
 
   private pad(
