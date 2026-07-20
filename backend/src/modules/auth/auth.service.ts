@@ -18,10 +18,6 @@ import type {
   RegisterDto,
 } from './auth.dto.js';
 
-const ADMIN_EMAIL = 'admin@viralforge.local';
-const ADMIN_PASSWORD = '123456';
-const ADMIN_NAME = 'Administrador';
-
 export class AuthService {
   constructor(private repo = new AuthRepository()) {}
 
@@ -63,57 +59,6 @@ export class AuthService {
     meta?: { ip?: string; userAgent?: string },
   ): Promise<AuthResponse> {
     const email = input.email.toLowerCase().trim();
-
-    /*
-     * Login administrativo temporário para testes.
-     *
-     * E-mail: admin@viralforge.local
-     * Senha: 123456
-     */
-    if (
-      email === ADMIN_EMAIL &&
-      input.password === ADMIN_PASSWORD
-    ) {
-      const { prisma } = await import('../../config/prisma.js');
-
-      const passwordHash = await bcrypt.hash(
-        ADMIN_PASSWORD,
-        env.BCRYPT_COST,
-      );
-
-      const admin = await prisma.user.upsert({
-        where: {
-          email: ADMIN_EMAIL,
-        },
-        update: {
-          name: ADMIN_NAME,
-          role: 'ADMIN',
-          plan: 'ENTERPRISE',
-          passwordHash,
-        },
-        create: {
-          email: ADMIN_EMAIL,
-          name: ADMIN_NAME,
-          passwordHash,
-          role: 'ADMIN',
-          plan: 'ENTERPRISE',
-          emailVerified: true,
-        },
-      });
-
-      return this.issueTokens(
-        admin.id,
-        admin.email,
-        admin.name,
-        'ADMIN',
-        'ENTERPRISE',
-        meta,
-      );
-    }
-
-    /*
-     * Login normal continua funcionando para os demais usuários.
-     */
     const user = await this.repo.findUserByEmail(email);
 
     if (!user) {
