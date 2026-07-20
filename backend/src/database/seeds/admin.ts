@@ -12,8 +12,8 @@ const INSECURE_PASSWORDS = new Set([
 ]);
 
 /**
- * Cria o administrador inicial somente quando ADMIN_EMAIL e ADMIN_PASSWORD
- * forem fornecidos explicitamente. Nunca cria credenciais padrão.
+ * Cria ou sincroniza o administrador configurado por variáveis de ambiente.
+ * Não existem credenciais padrão embutidas no código.
  */
 export async function seedAdmin(): Promise<void> {
   const rawEmail = process.env.ADMIN_EMAIL?.trim();
@@ -41,20 +41,32 @@ export async function seedAdmin(): Promise<void> {
     return;
   }
 
+  const passwordHash = await bcrypt.hash(password, env.BCRYPT_COST);
+  const name = process.env.ADMIN_NAME?.trim() || 'Administrator';
+
   const existing = await prisma.user.findUnique({ where: { email } });
 
   if (existing) {
-    logger.info({ email }, 'Admin already exists');
+    await prisma.user.update({
+      where: { email },
+      data: {
+        passwordHash,
+        name,
+        role: 'ADMIN',
+        plan: 'ENTERPRISE',
+        emailVerified: true,
+      },
+    });
+
+    logger.info({ email }, 'Admin credentials synchronized from environment');
     return;
   }
-
-  const passwordHash = await bcrypt.hash(password, env.BCRYPT_COST);
 
   await prisma.user.create({
     data: {
       email,
       passwordHash,
-      name: process.env.ADMIN_NAME?.trim() || 'Administrator',
+      name,
       role: 'ADMIN',
       plan: 'ENTERPRISE',
       emailVerified: true,
