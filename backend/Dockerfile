@@ -4,10 +4,7 @@ FROM node:20-bookworm-slim AS build
 
 WORKDIR /app
 
-# Garante que dependências de desenvolvimento sejam instaladas neste estágio,
-# mesmo quando a plataforma injeta NODE_ENV=production ou npm omit=dev.
 ENV NODE_ENV=development
-ENV NPM_CONFIG_PRODUCTION=false
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -24,13 +21,20 @@ RUN npm ci \
     --no-audit \
     --no-fund
 
+# O lockfile atual não instala o binário do Prisma CLI de forma confiável
+# no ambiente Railway. Instala a versão exata compatível, sem alterar arquivos.
+RUN npm install \
+    --no-save \
+    --no-package-lock \
+    --no-audit \
+    --no-fund \
+    prisma@5.22.0
+
 COPY tsconfig.json ./
 COPY prisma ./prisma
 COPY src ./src
 
-# Usa exclusivamente o Prisma CLI fixado no package-lock (5.22.0).
-# Não permite download automático de uma versão global/incompatível.
-RUN ./node_modules/.bin/prisma generate
+RUN npx --no-install prisma generate
 RUN npm run build
 
 
@@ -58,10 +62,7 @@ RUN npm ci \
     --no-audit \
     --no-fund
 
-# O Prisma Client já foi gerado no estágio de build com a versão fixada
-# pelo projeto. Copiamos os artefatos gerados para a imagem final.
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
-
 COPY --from=build /app/dist ./dist
 
 RUN mkdir -p \
