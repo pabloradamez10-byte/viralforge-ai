@@ -28,6 +28,14 @@ import { facelessRoutes } from './modules/faceless/faceless.routes.js';
 import { publicationsRoutes } from './modules/publications/publications.routes.js';
 import { videoRenderRoutes } from './modules/video-render/video-render.routes.js';
 
+const DEPLOYED_FRONTEND_ORIGINS = [
+  'https://viralforge-ai-five.vercel.app',
+];
+
+function normalizeOrigin(value: string): string {
+  return value.trim().replace(/\/$/, '');
+}
+
 export function createApp() {
   const app = express();
 
@@ -48,6 +56,16 @@ export function createApp() {
 
   app.use(compression());
 
+  const allowedOrigins = new Set(
+    [
+      ...corsOrigins,
+      env.APP_URL,
+      ...DEPLOYED_FRONTEND_ORIGINS,
+    ]
+      .filter(Boolean)
+      .map(normalizeOrigin),
+  );
+
   app.use(
     cors({
       origin: (origin, callback) => {
@@ -55,16 +73,21 @@ export function createApp() {
           return callback(null, true);
         }
 
-        if (
-          corsOrigins.includes(origin) ||
-          corsOrigins.includes('*')
-        ) {
+        const normalizedOrigin = normalizeOrigin(origin);
+
+        if (allowedOrigins.has(normalizedOrigin)) {
           return callback(null, true);
         }
 
-        return callback(
-          new Error('CORS not allowed'),
+        logger.warn(
+          {
+            origin: normalizedOrigin,
+            allowedOrigins: [...allowedOrigins],
+          },
+          'CORS origin rejected',
         );
+
+        return callback(new Error('CORS not allowed'));
       },
       credentials: true,
     }),
