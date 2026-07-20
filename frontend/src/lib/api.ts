@@ -3,17 +3,14 @@ import axios, {
   InternalAxiosRequestConfig,
 } from 'axios';
 
+const DEFAULT_PRODUCTION_API_URL =
+  'https://viralforge-ai-production.up.railway.app/api/v1';
+
 const API_URL =
   import.meta.env.VITE_API_URL ??
   (import.meta.env.DEV
     ? 'http://localhost:4000/api/v1'
-    : undefined);
-
-if (!API_URL) {
-  throw new Error(
-    'VITE_API_URL não está configurada para este ambiente',
-  );
-}
+    : DEFAULT_PRODUCTION_API_URL);
 
 const ACCESS_TOKEN_KEY = 'vf_access';
 const REFRESH_TOKEN_KEY = 'vf_refresh';
