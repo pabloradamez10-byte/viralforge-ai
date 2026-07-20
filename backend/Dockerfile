@@ -10,15 +10,11 @@ RUN apt-get update \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Força o registro público e evita URLs internas presentes
-# no package-lock.json antigo.
 RUN npm config set registry https://registry.npmjs.org/
 
-# Copiamos somente package.json de propósito.
-# O package-lock.json atual não será usado.
-COPY package.json ./
+COPY package.json package-lock.json ./
 
-RUN npm install \
+RUN npm ci \
     --no-audit \
     --no-fund
 
@@ -26,9 +22,7 @@ COPY tsconfig.json ./
 COPY prisma ./prisma
 COPY src ./src
 
-# Usa o Prisma 5.22.0 instalado no package.json.
 RUN npm exec prisma generate
-
 RUN npm run build
 
 
@@ -48,17 +42,14 @@ RUN apt-get update \
 
 RUN npm config set registry https://registry.npmjs.org/
 
-# Novamente, não copiamos o package-lock.json.
-COPY package.json ./
+COPY package.json package-lock.json ./
 COPY prisma ./prisma
 
-# Instala apenas dependências necessárias em produção.
-RUN npm install \
+RUN npm ci \
     --omit=dev \
     --no-audit \
     --no-fund
 
-# Gera o Prisma Client no ambiente final.
 RUN npm exec prisma generate
 
 COPY --from=build /app/dist ./dist

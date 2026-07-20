@@ -1,10 +1,13 @@
 import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
+import { validateProductionConfig } from './config/validate-production-config.js';
 import { startSchedulers } from './services/queue/scheduler.js';
 import { startWorkers } from './services/queue/workers.js';
 
 async function bootstrap() {
+  validateProductionConfig();
+
   const app = createApp();
   const server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT, env: env.NODE_ENV }, `🚀 ${env.APP_NAME} API running`);

@@ -60,6 +60,15 @@ export class FFmpegService {
   private readonly ffmpegThreads = 2;
   private readonly filterThreads = 1;
 
+  async probeDuration(filePath: string): Promise<number> {
+    await this.assertFileExists(
+      filePath,
+      'Arquivo de mídia',
+    );
+
+    return this.readDurationWithFfprobe(filePath);
+  }
+
   async render(
     input: RenderVideoInput,
   ): Promise<RenderVideoResult> {
@@ -169,7 +178,7 @@ export class FFmpegService {
       }
 
       const duration = Math.min(
-        Math.max(sceneDuration, 1),
+        Math.max(sceneDuration, 0.5),
         60,
       );
 
@@ -314,7 +323,7 @@ export class FFmpegService {
         '-vf',
         [
           `subtitles='${escapedSubtitlePath}'`,
-          "force_style='FontName=DejaVu Sans,FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=140'",
+          "force_style='FontName=DejaVu Sans,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=120,MarginL=56,MarginR=56,Bold=1'",
         ].join(':'),
       );
     }
@@ -644,6 +653,99 @@ export class FFmpegService {
       .replace(/\\/g, '/')
       .replace(/:/g, '\\:')
       .replace(/'/g, "\\'");
+  }
+
+  private readDurationWithFfprobe(
+    filePath: string,
+  ): Promise<number> {
+    return new Promise<number>((resolve, reject) => {
+      let stdout = '';
+      let stderr = '';
+      let settled = false;
+
+      const childProcess = spawn(
+        'ffprobe',
+        [
+          '-v',
+          'error',
+          '-show_entries',
+          'format=duration',
+          '-of',
+          'default=noprint_wrappers=1:nokey=1',
+          path.resolve(filePath),
+        ],
+        {
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      );
+
+      const timeout = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        childProcess.kill('SIGKILL');
+        reject(
+          new Error(
+            'ffprobe excedeu o limite de tempo ao medir a duração da narração.',
+          ),
+        );
+      }, 30_000);
+
+      childProcess.stdout.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString();
+      });
+
+      childProcess.stderr.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+
+      childProcess.on('error', (error) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timeout);
+        reject(
+          new Error(
+            `Não foi possível iniciar ffprobe: ${error.message}`,
+          ),
+        );
+      });
+
+      childProcess.on('close', (code) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(timeout);
+
+        if (code !== 0) {
+          reject(
+            new Error(
+              `ffprobe terminou com código ${code ?? 'desconhecido'}. ${stderr.trim()}`,
+            ),
+          );
+          return;
+        }
+
+        const duration = Number(stdout.trim());
+
+        if (!Number.isFinite(duration) || duration <= 0) {
+          reject(
+            new Error(
+              'ffprobe não retornou uma duração válida para a narração.',
+            ),
+          );
+          return;
+        }
+
+        resolve(duration);
+      });
+    });
   }
 
   private exec(
