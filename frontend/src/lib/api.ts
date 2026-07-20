@@ -6,11 +6,27 @@ import axios, {
 const DEFAULT_PRODUCTION_API_URL =
   'https://viralforge-ai-production.up.railway.app/api/v1';
 
-const API_URL =
-  import.meta.env.VITE_API_URL ??
-  (import.meta.env.DEV
+function resolveApiUrl(): string {
+  const configuredUrl = import.meta.env.VITE_API_URL?.trim();
+
+  if (configuredUrl) {
+    try {
+      const parsedUrl = new URL(configuredUrl);
+
+      if (parsedUrl.protocol === 'http:' || parsedUrl.protocol === 'https:') {
+        return configuredUrl.replace(/\/$/, '');
+      }
+    } catch {
+      // Valor inválido ou relativo: usa o endereço seguro conhecido abaixo.
+    }
+  }
+
+  return import.meta.env.DEV
     ? 'http://localhost:4000/api/v1'
-    : DEFAULT_PRODUCTION_API_URL);
+    : DEFAULT_PRODUCTION_API_URL;
+}
+
+const API_URL = resolveApiUrl();
 
 const ACCESS_TOKEN_KEY = 'vf_access';
 const REFRESH_TOKEN_KEY = 'vf_refresh';
