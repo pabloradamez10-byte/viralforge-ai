@@ -12,6 +12,8 @@ import type {
   VideoRenderResult,
 } from './video-render.dto.js';
 
+type RenderScene = CreateVideoRenderDto['scenes'][number];
+
 interface InternalVideoRenderResult
   extends VideoRenderResult {
   userId: string;
@@ -137,6 +139,17 @@ export class VideoRenderService {
         outputFilename: 'narration.mp3',
       });
 
+      const narrationDurationSec =
+        await ffmpegService.probeDuration(
+          narration.filePath,
+        );
+
+      const plannedScenes =
+        this.alignScenesWithNarration(
+          dto.scenes,
+          narrationDurationSec,
+        );
+
       this.updateJob(renderId, {
         status: 'SEARCHING_MEDIA',
         progress: 25,
@@ -146,10 +159,11 @@ export class VideoRenderService {
 
       const downloadedMedia =
         await mediaService.downloadMediaForScenes({
-          scenes: dto.scenes.map((scene) => ({
+          scenes: plannedScenes.map((scene) => ({
             order: scene.order,
             name: scene.name,
             visual: scene.visual,
+            voiceover: scene.voiceover,
             searchKeywords:
               scene.searchKeywords,
             durationSec:
@@ -182,8 +196,8 @@ export class VideoRenderService {
       });
 
       const subtitleSegments =
-        subtitleService.createSegmentsFromScenes(
-          dto.scenes
+        subtitleService.createShortSegmentsFromScenes(
+          plannedScenes
             .slice()
             .sort(
               (first, second) =>
@@ -297,6 +311,65 @@ export class VideoRenderService {
           new Date().toISOString(),
       });
     }
+  }
+
+  private alignScenesWithNarration(
+    scenes: RenderScene[],
+    narrationDurationSec: number,
+  ): RenderScene[] {
+    const orderedScenes = scenes
+      .slice()
+      .sort(
+        (first, second) =>
+          first.order - second.order,
+      );
+
+    if (
+      orderedScenes.length === 0 ||
+      !Number.isFinite(narrationDurationSec) ||
+      narrationDurationSec <= 0
+    ) {
+      return orderedScenes;
+    }
+
+    const weights = orderedScenes.map((scene) => {
+      const wordCount = scene.voiceover
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean).length;
+
+      return Math.max(wordCount, 1);
+    });
+
+    const totalWeight = weights.reduce(
+      (total, weight) => total + weight,
+      0,
+    );
+
+    let allocated = 0;
+
+    return orderedScenes.map((scene, index) => {
+      const isLastScene =
+        index === orderedScenes.length - 1;
+
+      const durationSec = isLastScene
+        ? Math.max(
+            narrationDurationSec - allocated,
+            0,
+          )
+        : (narrationDurationSec * (weights[index] ?? 1)) /
+          totalWeight;
+
+      const roundedDuration =
+        Math.round(durationSec * 100) / 100;
+
+      allocated += roundedDuration;
+
+      return {
+        ...scene,
+        durationSec: roundedDuration,
+      };
+    });
   }
 
   private getDimensions(
