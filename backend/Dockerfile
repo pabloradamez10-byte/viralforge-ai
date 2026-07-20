@@ -50,7 +50,10 @@ RUN npm ci \
     --no-audit \
     --no-fund
 
-RUN npm exec prisma generate
+# O Prisma Client já foi gerado no estágio de build com a versão fixada
+# pelo projeto. Copiamos os artefatos gerados para evitar que `npm exec`
+# baixe uma versão mais nova do Prisma durante o build da imagem runtime.
+COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 
 COPY --from=build /app/dist ./dist
 
