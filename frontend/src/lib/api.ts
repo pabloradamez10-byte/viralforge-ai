@@ -4,7 +4,16 @@ import axios, {
 } from 'axios';
 
 const API_URL =
-  'https://viralforge-ai-production.up.railway.app/api/v1';
+  import.meta.env.VITE_API_URL ??
+  (import.meta.env.DEV
+    ? 'http://localhost:4000/api/v1'
+    : undefined);
+
+if (!API_URL) {
+  throw new Error(
+    'VITE_API_URL não está configurada para este ambiente',
+  );
+}
 
 const ACCESS_TOKEN_KEY = 'vf_access';
 const REFRESH_TOKEN_KEY = 'vf_refresh';
