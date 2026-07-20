@@ -2,11 +2,17 @@ import { createApp } from './app.js';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
 import { validateProductionConfig } from './config/validate-production-config.js';
+import { seedAdmin } from './database/seeds/admin.js';
 import { startSchedulers } from './services/queue/scheduler.js';
 import { startWorkers } from './services/queue/workers.js';
 
 async function bootstrap() {
   validateProductionConfig();
+
+  // Provisiona o administrador configurado no Railway de forma idempotente.
+  // Se ADMIN_EMAIL/ADMIN_PASSWORD não existirem, o seed apenas registra e segue.
+  // Se o usuário já existir, nenhuma alteração é feita.
+  await seedAdmin();
 
   const app = createApp();
   const server = app.listen(env.PORT, () => {
