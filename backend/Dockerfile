@@ -21,8 +21,6 @@ RUN npm ci \
     --no-audit \
     --no-fund
 
-# O lockfile atual não instala o binário do Prisma CLI de forma confiável
-# no ambiente Railway. Instala a versão exata compatível, sem alterar arquivos.
 RUN npm install \
     --no-save \
     --no-package-lock \
@@ -61,6 +59,15 @@ RUN npm ci \
     --omit=dev \
     --no-audit \
     --no-fund
+
+# Railway executa `npm run prisma:deploy` dentro da imagem final antes de
+# iniciar a aplicação. Por isso o Prisma CLI precisa existir no runtime.
+RUN npm install \
+    --no-save \
+    --no-package-lock \
+    --no-audit \
+    --no-fund \
+    prisma@5.22.0
 
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/dist ./dist
