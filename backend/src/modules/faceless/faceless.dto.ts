@@ -26,6 +26,7 @@ export const FacelessScriptSchema = z.object({
       visual: z.string(),
       voiceover: z.string(),
       durationSec: z.number().int().min(1).max(120),
+      searchKeywords: z.array(z.string().min(2).max(100)).max(10).default([]),
     }),
   ),
   captions: z.string(), // SRT-like texto com timestamps
