@@ -1,8 +1,10 @@
+import { Prisma } from '@prisma/client';
+import { v4 as uuid } from 'uuid';
+
 import { prisma } from '../../config/prisma.js';
 import { NotFoundError } from '../../shared/errors/app-error.js';
-import { generateFacelessScript } from './generator.js';
 import type { GenerateFacelessDto, FacelessScript } from './faceless.dto.js';
-import { v4 as uuid } from 'uuid';
+import { generateFacelessScript } from './generator.js';
 
 const DOMAIN_RULES: Array<{
   matches: string[];
@@ -63,6 +65,9 @@ const AMBIGUOUS_TERMS = new Set([
   'coisa',
   'tema',
 ]);
+
+const DATABASE_WRITE_ATTEMPTS = 3;
+const DATABASE_RETRY_DELAYS_MS = [0, 500, 1_500];
 
 function normalize(value: string): string {
   return value
@@ -179,37 +184,124 @@ function enrichScript(
   };
 }
 
+function sleep(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isTransientDatabaseError(error: unknown): boolean {
+  const message = getErrorMessage(error).toLowerCase();
+
+  if (
+    error instanceof Prisma.PrismaClientInitializationError ||
+    error instanceof Prisma.PrismaClientRustPanicError
+  ) {
+    return true;
+  }
+
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return ['P1001', 'P1002', 'P1008', 'P1017', 'P2024'].includes(error.code);
+  }
+
+  return [
+    'connection closed',
+    'connection is closed',
+    'kind: closed',
+    'server has closed the connection',
+    'connection terminated unexpectedly',
+    'connection reset by peer',
+    'broken pipe',
+    'timed out fetching a new connection',
+    'can\'t reach database server',
+    'cannot reach database server',
+  ].some((fragment) => message.includes(fragment));
+}
+
+async function createFacelessScriptWithRetry(
+  data: Prisma.FacelessScriptUncheckedCreateInput,
+) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= DATABASE_WRITE_ATTEMPTS; attempt += 1) {
+    try {
+      const delay = DATABASE_RETRY_DELAYS_MS[attempt - 1] ?? 0;
+      if (delay > 0) {
+        await sleep(delay);
+      }
+
+      if (attempt > 1) {
+        await prisma.$connect();
+      }
+
+      const created = await prisma.facelessScript.create({ data });
+
+      if (attempt > 1) {
+        console.info('✅ DATABASE WRITE RECOVERED', {
+          operation: 'facelessScript.create',
+          attempt,
+          scriptId: created.id,
+        });
+      }
+
+      return created;
+    } catch (error: unknown) {
+      lastError = error;
+      const transient = isTransientDatabaseError(error);
+
+      console.warn('⚠️ DATABASE WRITE FAILED', {
+        operation: 'facelessScript.create',
+        attempt,
+        transient,
+        error: getErrorMessage(error),
+      });
+
+      if (!transient || attempt === DATABASE_WRITE_ATTEMPTS) {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 export class FacelessService {
-  async generate(userId: string, dto: GenerateFacelessDto, sourceUrl?: string): Promise<FacelessScript & { id: string }> {
+  async generate(
+    userId: string,
+    dto: GenerateFacelessDto,
+    sourceUrl?: string,
+  ): Promise<FacelessScript & { id: string }> {
     const generatedScript = await generateFacelessScript(dto);
     const script = enrichScript(generatedScript, dto);
     const id = uuid();
-    const created = await prisma.facelessScript.create({
-      data: {
-        id,
-        userId,
-        projectId: dto.projectId,
-        sourcePlatform: dto.sourcePlatform,
-        sourceVideoId: dto.sourceVideoId,
-        sourceTitle: dto.sourceTitle,
-        sourceUrl,
-        niche: dto.niche,
-        tone: dto.tone,
-        targetDuration: dto.targetDuration,
-        language: dto.language,
-        title: script.title,
-        hook: script.hook,
-        narration: script.narration,
-        scenes: script.scenes as any,
-        captions: script.captions,
-        hashtags: script.hashtags.join(' '),
-        cta: script.cta,
-        keywords: script.keywords.join(', '),
-        thumbnailSuggestion: script.thumbnailSuggestion,
-        estimatedDurationSec: script.estimatedDurationSec,
-        status: 'DRAFT',
-      },
+
+    const created = await createFacelessScriptWithRetry({
+      id,
+      userId,
+      projectId: dto.projectId,
+      sourcePlatform: dto.sourcePlatform,
+      sourceVideoId: dto.sourceVideoId,
+      sourceTitle: dto.sourceTitle,
+      sourceUrl,
+      niche: dto.niche,
+      tone: dto.tone,
+      targetDuration: dto.targetDuration,
+      language: dto.language,
+      title: script.title,
+      hook: script.hook,
+      narration: script.narration,
+      scenes: script.scenes as Prisma.InputJsonValue,
+      captions: script.captions,
+      hashtags: script.hashtags.join(' '),
+      cta: script.cta,
+      keywords: script.keywords.join(', '),
+      thumbnailSuggestion: script.thumbnailSuggestion,
+      estimatedDurationSec: script.estimatedDurationSec,
+      status: 'DRAFT',
     });
+
     return { ...script, id: created.id };
   }
 
@@ -227,9 +319,9 @@ export class FacelessService {
   }
 
   async get(userId: string, id: string) {
-    const s = await prisma.facelessScript.findFirst({ where: { id, userId } });
-    if (!s) throw new NotFoundError('FacelessScript');
-    return s;
+    const script = await prisma.facelessScript.findFirst({ where: { id, userId } });
+    if (!script) throw new NotFoundError('FacelessScript');
+    return script;
   }
 
   async remove(userId: string, id: string) {
