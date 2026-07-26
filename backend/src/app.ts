@@ -27,6 +27,7 @@ import { viralVideosRoutes } from './modules/viral-videos/viral-videos.routes.js
 import { facelessRoutes } from './modules/faceless/faceless.routes.js';
 import { publicationsRoutes } from './modules/publications/publications.routes.js';
 import { videoRenderRoutes } from './modules/video-render/video-render.routes.js';
+import { smartClipsRoutes } from './modules/smart-clips/smart-clips.routes.js';
 
 const DEPLOYED_FRONTEND_ORIGINS = [
   'https://viralforge-ai-five.vercel.app',
@@ -108,7 +109,6 @@ export function createApp() {
 
   app.use(globalRateLimit);
 
-  // ── Logger ────────────────────────────────────────
   app.use((req, res, next) => {
     const start = Date.now();
 
@@ -130,7 +130,6 @@ export function createApp() {
     next();
   });
 
-  // ── Health ────────────────────────────────────────
   app.get('/health', (_req, res) => {
     res.json({
       status: 'ok',
@@ -169,7 +168,6 @@ export function createApp() {
     }
   });
 
-  // ── Docs ──────────────────────────────────────────
   app.get(
     '/api/docs-json',
     (_req, res) => {
@@ -185,7 +183,6 @@ export function createApp() {
     }),
   );
 
-  // ── API v1 ────────────────────────────────────────
   const v1 = express.Router();
 
   v1.use('/auth', authRoutes);
@@ -199,14 +196,8 @@ export function createApp() {
   v1.use('/viral-videos', viralVideosRoutes);
   v1.use('/faceless', facelessRoutes);
   v1.use('/publications', publicationsRoutes);
+  v1.use('/smart-clips', smartClipsRoutes);
 
-  /*
-   * Rotas do gerador e renderizador:
-   *
-   * POST /api/v1/video-renders
-   * GET  /api/v1/video-renders/:id
-   * GET  /api/v1/video-renders/:id/download
-   */
   v1.use(
     '/video-renders',
     videoRenderRoutes,
@@ -214,7 +205,6 @@ export function createApp() {
 
   app.use('/api/v1', v1);
 
-  // ── Root ──────────────────────────────────────────
   app.get('/', (_req, res) => {
     res.json({
       name: 'ViralForge AI',
