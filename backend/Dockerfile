@@ -31,6 +31,7 @@ RUN npm install \
 COPY tsconfig.json ./
 COPY prisma ./prisma
 COPY src ./src
+COPY scripts ./scripts
 
 RUN npx --no-install prisma generate
 RUN npm run build
@@ -54,6 +55,7 @@ RUN npm config set registry https://registry.npmjs.org/
 
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
+COPY scripts ./scripts
 
 RUN npm ci \
     --omit=dev \
@@ -75,7 +77,8 @@ COPY --from=build /app/dist ./dist
 RUN mkdir -p \
     /app/storage/work \
     /app/storage/renders \
-    /app/storage/videos
+    /app/storage/videos \
+    /app/storage/smart-clips
 
 EXPOSE 4000
 
