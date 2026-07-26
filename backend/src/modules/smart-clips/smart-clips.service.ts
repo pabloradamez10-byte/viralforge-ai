@@ -44,6 +44,7 @@ export interface SmartClipJob {
   message: string;
   originalFilename: string;
   sourceDurationSec?: number;
+  sourceHasAudio?: boolean;
   transcript?: string;
   clips: SmartClipItem[];
   options: SmartClipOptions;
@@ -112,22 +113,40 @@ export class SmartClipsService {
       await writeFile(sourcePath, file);
       this.update(id, { status: 'ANALYZING', progress: 8, message: 'Analisando duração, formato e áudio...' });
       const sourceDurationSec = await this.probeDuration(sourcePath);
+      const sourceHasAudio = await this.probeHasAudio(sourcePath);
+      this.update(id, { sourceDurationSec, sourceHasAudio });
       if (sourceDurationSec < 8) throw new Error('O vídeo precisa ter pelo menos 8 segundos.');
 
-      this.update(id, { status: 'TRANSCRIBING', progress: 18, message: 'Transcrevendo o vídeo com timestamps...', sourceDurationSec });
+      if (!sourceHasAudio && options.audioMode === 'original') {
+        throw new Error('Este vídeo não possui faixa de áudio. Escolha “Roteiro próprio + nova voz” para gerar cortes narrados.');
+      }
+      if (!sourceHasAudio && options.audioMode === 'rewrite') {
+        throw new Error('Este vídeo não possui faixa de áudio para transcrever e reescrever. Use “Roteiro próprio + nova voz”.');
+      }
+
       let transcript: TranscriptResult | undefined;
-      try {
-        transcript = await transcriptionService.transcribe(sourcePath);
-        this.update(id, { transcript: transcript.text });
-      } catch (error) {
-        if (options.audioMode !== 'original') throw error;
-        console.warn('⚠️ SMART CLIPS TRANSCRIPTION FALLBACK', { id, error: error instanceof Error ? error.message : error });
+      if (sourceHasAudio) {
+        this.update(id, { status: 'TRANSCRIBING', progress: 18, message: 'Transcrevendo o vídeo com timestamps...' });
+        try {
+          transcript = await transcriptionService.transcribe(sourcePath);
+          this.update(id, { transcript: transcript.text });
+        } catch (error) {
+          if (options.audioMode !== 'original') throw error;
+          console.warn('⚠️ SMART CLIPS TRANSCRIPTION FALLBACK', { id, error: error instanceof Error ? error.message : error });
+        }
+      } else {
+        console.info('🔇 SMART CLIPS SILENT SOURCE', { id, mode: options.audioMode });
       }
 
       this.update(id, {
         status: 'SELECTING', progress: 34,
-        message: transcript ? 'Selecionando e validando os melhores momentos...' : 'Distribuindo cortes porque a transcrição não ficou disponível...',
+        message: transcript
+          ? 'Selecionando e validando os melhores momentos...'
+          : sourceHasAudio
+            ? 'Distribuindo cortes porque a transcrição não ficou disponível...'
+            : 'Distribuindo cenas do vídeo silencioso para receber a nova narração...',
       });
+
       const highlights = transcript
         ? await this.selectHighlights(transcript, sourceDurationSec, options)
         : this.fallbackHighlights(sourceDurationSec, options);
@@ -164,7 +183,14 @@ export class SmartClipsService {
           }
         }
 
-        await this.cutVerticalClip(sourcePath, rawVideoPath, highlight.startSec, duration, options.removeSilence && options.audioMode === 'original');
+        await this.cutVerticalClip(
+          sourcePath,
+          rawVideoPath,
+          highlight.startSec,
+          duration,
+          sourceHasAudio,
+          options.removeSilence && options.audioMode === 'original',
+        );
 
         if (options.audioMode === 'original') {
           const subtitleFile = options.captions && highlight.transcript
@@ -299,7 +325,7 @@ export class SmartClipsService {
     const count = Math.min(options.clipCount, Math.max(1, Math.floor(sourceDuration / Math.max(duration, 1))));
     return Array.from({ length: count }, (_, index) => {
       const start = count === 1 ? maxStart / 2 : (maxStart * index) / (count - 1);
-      return { startSec: start, endSec: Math.min(sourceDuration, start + duration), title: `Corte ${index + 1}`, score: 50, transcript: '' };
+      return { startSec: start, endSec: Math.min(sourceDuration, start + duration), title: `Corte ${index + 1}`, score: 70, transcript: '' };
     });
   }
 
@@ -407,15 +433,20 @@ export class SmartClipsService {
     return subtitleService.createSrt({ workingDirectory: workDirectory, filename: `clip-${index + 1}.srt`, segments });
   }
 
-  private async cutVerticalClip(input: string, output: string, start: number, duration: number, removeSilence: boolean): Promise<void> {
-    const audioFilter = removeSilence ? ',silenceremove=start_periods=1:start_silence=0.25:start_threshold=-45dB:stop_periods=-1:stop_silence=0.35:stop_threshold=-45dB' : '';
-    await this.run('ffmpeg', [
+  private async cutVerticalClip(input: string, output: string, start: number, duration: number, hasAudio: boolean, removeSilence: boolean): Promise<void> {
+    const args = [
       '-y', '-ss', start.toFixed(3), '-i', input, '-t', duration.toFixed(3),
       '-vf', 'scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1',
-      '-af', `aresample=async=1${audioFilter}`,
-      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '25', '-threads', '2',
-      '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', output,
-    ]);
+    ];
+    if (hasAudio) {
+      const audioFilter = removeSilence ? ',silenceremove=start_periods=1:start_silence=0.25:start_threshold=-45dB:stop_periods=-1:stop_silence=0.35:stop_threshold=-45dB' : '';
+      args.push('-af', `aresample=async=1${audioFilter}`);
+    }
+    args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '25', '-threads', '2');
+    if (hasAudio) args.push('-c:a', 'aac', '-b:a', '128k');
+    else args.push('-an');
+    args.push('-movflags', '+faststart', output);
+    await this.run('ffmpeg', args);
   }
 
   private async finishOriginalAudioClip(input: string, output: string, subtitleFile?: string): Promise<void> {
@@ -451,6 +482,14 @@ export class SmartClipsService {
     const duration = Number(output.trim());
     if (!Number.isFinite(duration) || duration <= 0) throw new Error('Não foi possível ler a duração do arquivo.');
     return duration;
+  }
+
+  private async probeHasAudio(filePath: string): Promise<boolean> {
+    const output = await this.run('ffprobe', [
+      '-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=index',
+      '-of', 'default=noprint_wrappers=1:nokey=1', filePath,
+    ]);
+    return output.trim().length > 0;
   }
 
   private run(command: string, args: string[]): Promise<string> {
