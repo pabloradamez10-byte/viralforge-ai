@@ -246,7 +246,13 @@ export class SmartClipsService {
 
   private async cutVerticalClip(input: string, output: string, start: number, duration: number, removeSilence: boolean): Promise<void> {
     const audioFilter = removeSilence ? ',silenceremove=start_periods=1:start_silence=0.25:start_threshold=-45dB:stop_periods=-1:stop_silence=0.35:stop_threshold=-45dB' : '';
-    await this.run('ffmpeg', ['-y', '-ss', start.toFixed(3), '-i', input, '-t', duration.toFixed(3), '-vf', 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920', '-af', `aresample=async=1${audioFilter}`, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', output]);
+    await this.run('ffmpeg', [
+      '-y', '-ss', start.toFixed(3), '-i', input, '-t', duration.toFixed(3),
+      '-vf', 'scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1',
+      '-af', `aresample=async=1${audioFilter}`,
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '25', '-threads', '2',
+      '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', output,
+    ]);
   }
 
   private async finishOriginalAudioClip(input: string, output: string, subtitleFile?: string): Promise<void> {
@@ -254,19 +260,27 @@ export class SmartClipsService {
       await this.run('ffmpeg', ['-y', '-i', input, '-c', 'copy', '-movflags', '+faststart', output]);
       return;
     }
-    await this.run('ffmpeg', ['-y', '-i', input, '-vf', this.subtitleFilter(subtitleFile), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-c:a', 'copy', '-movflags', '+faststart', output]);
+    await this.run('ffmpeg', [
+      '-y', '-i', input, '-vf', this.subtitleFilter(subtitleFile),
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '24', '-threads', '2',
+      '-c:a', 'copy', '-movflags', '+faststart', output,
+    ]);
   }
 
   private async finishNarratedClip(video: string, output: string, narration: string, subtitleFile: string | undefined, duration: number): Promise<void> {
     const args = ['-y', '-stream_loop', '-1', '-i', video, '-i', narration, '-t', duration.toFixed(3)];
     if (subtitleFile) args.push('-vf', this.subtitleFilter(subtitleFile));
-    args.push('-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '22', '-c:a', 'aac', '-b:a', '160k', '-shortest', '-movflags', '+faststart', output);
+    args.push(
+      '-map', '0:v:0', '-map', '1:a:0',
+      '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '24', '-threads', '2',
+      '-c:a', 'aac', '-b:a', '128k', '-shortest', '-movflags', '+faststart', output,
+    );
     await this.run('ffmpeg', args);
   }
 
   private subtitleFilter(filePath: string): string {
     const escaped = filePath.replace(/\\/g, '/').replace(/:/g, '\\:').replace(/'/g, "\\'");
-    return `subtitles='${escaped}':force_style='FontName=Arial,FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=150'`;
+    return `subtitles='${escaped}':force_style='FontName=Arial,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=100'`;
   }
 
   private async probeDuration(filePath: string): Promise<number> {
@@ -281,10 +295,27 @@ export class SmartClipsService {
       const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
       let stdout = '';
       let stderr = '';
+      let settled = false;
+
       child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-      child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-      child.on('error', reject);
-      child.on('close', (code) => code === 0 ? resolve(stdout) : reject(new Error(`${command} terminou com código ${code}: ${stderr.slice(-1800)}`)));
+      child.stderr.on('data', (chunk) => {
+        stderr = `${stderr}${chunk.toString()}`.slice(-6000);
+      });
+      child.on('error', (error) => {
+        if (settled) return;
+        settled = true;
+        reject(error);
+      });
+      child.on('close', (code, signal) => {
+        if (settled) return;
+        settled = true;
+        if (code === 0) {
+          resolve(stdout);
+          return;
+        }
+        const termination = signal ? `sinal ${signal}` : `código ${String(code)}`;
+        reject(new Error(`${command} terminou com ${termination}. ${stderr.slice(-2200)}`));
+      });
     });
   }
 
