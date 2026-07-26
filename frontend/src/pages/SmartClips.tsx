@@ -34,6 +34,7 @@ export default function SmartClips() {
   const [job, setJob] = useState<SmartClipJob | null>(null);
 
   const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : ''), [file]);
+  const generatedClips = job?.clips ?? [];
 
   useEffect(() => {
     return () => {
@@ -206,11 +207,11 @@ export default function SmartClips() {
         </aside>
       </div>
 
-      {job?.clips?.length > 0 && (
+      {generatedClips.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-lg font-semibold">Cortes gerados</h2>
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {job.clips.map((clip) => (
+            {generatedClips.map((clip) => (
               <div key={clip.id} className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="font-semibold">Corte {clip.order}</span>
