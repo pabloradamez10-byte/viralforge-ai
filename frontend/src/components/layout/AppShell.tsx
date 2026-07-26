@@ -9,6 +9,7 @@ import {
   Wand2,
   LogOut,
   Sparkles,
+  Scissors,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -16,6 +17,7 @@ const nav = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/virals', label: 'Virais encontrados', icon: Flame },
   { to: '/faceless', label: 'Roteiros faceless', icon: Wand2 },
+  { to: '/smart-clips', label: 'Smart Clips', icon: Scissors },
   { to: '/trends', label: 'Trends', icon: TrendingUp },
   { to: '/history', label: 'Histórico', icon: HistoryIcon },
   { to: '/sources', label: 'Fontes', icon: Database },
@@ -27,7 +29,6 @@ export default function AppShell() {
 
   return (
     <div className="min-h-screen flex">
-      {/* Sidebar */}
       <aside className="w-64 shrink-0 border-r border-slate-800 bg-slate-950 flex flex-col">
         <div className="px-6 py-5 border-b border-slate-800 flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-brand-500 to-violet-600 grid place-items-center text-white font-bold">
@@ -82,7 +83,6 @@ export default function AppShell() {
         </div>
       </aside>
 
-      {/* Content */}
       <main className="flex-1 min-w-0">
         <header className="h-14 border-b border-slate-800 bg-slate-950/80 backdrop-blur flex items-center justify-between px-6">
           <div className="flex items-center gap-2 text-sm text-slate-400">
