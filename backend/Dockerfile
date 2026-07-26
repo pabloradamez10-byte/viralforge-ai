@@ -51,6 +51,13 @@ RUN apt-get update \
       ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
+# O Railway expõe muitos CPUs virtuais, mas pouca memória. Sem limite, o x264
+# abriu dezenas de threads e o processo foi encerrado por falta de memória.
+# Este wrapper mantém todos os renders do app em um consumo previsível.
+RUN mv /usr/bin/ffmpeg /usr/bin/ffmpeg-real \
+    && printf '#!/bin/sh\nexec /usr/bin/ffmpeg-real -threads 2 -filter_threads 1 -filter_complex_threads 1 "$@"\n' > /usr/local/bin/ffmpeg \
+    && chmod +x /usr/local/bin/ffmpeg
+
 RUN npm config set registry https://registry.npmjs.org/
 
 COPY package.json package-lock.json ./
