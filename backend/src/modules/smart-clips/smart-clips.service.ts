@@ -33,6 +33,7 @@ export interface SmartClipItem {
   transcript: string;
   script?: string;
   audioMode: SmartClipAudioMode;
+  qualityScore: number;
 }
 
 export interface SmartClipJob {
@@ -56,6 +57,15 @@ interface HighlightCandidate { startSec: number; endSec: number; title: string; 
 interface AiHighlightsResponse {
   highlights?: Array<{ startSec?: number; endSec?: number; title?: string; score?: number; transcript?: string; suggestedScript?: string }>;
 }
+interface AiRewriteResponse { title?: string; script?: string; }
+interface QualityAssessment { approved: boolean; score: number; reasons: string[]; }
+
+const MIN_FINAL_DURATION_SEC = 12;
+const MIN_HIGHLIGHT_SCORE = 60;
+const MIN_QUALITY_SCORE = 68;
+const MAX_REWRITE_ATTEMPTS = 3;
+const FAREWELL_PATTERN = /\b(obrigad[oa]|muito obrigado|agradecer|agradeço|valeu|até mais|até a próxima|tchau|despedida|encerrando|finalizando|é isso|por tudo)\b/i;
+const WEAK_FILLER_PATTERN = /\b(tipo assim|né|entendeu|beleza|enfim|bom pessoal|fala galera)\b/i;
 
 export class SmartClipsService {
   private readonly jobs = new Map<string, InternalSmartClipJob>();
@@ -116,11 +126,15 @@ export class SmartClipsService {
 
       this.update(id, {
         status: 'SELECTING', progress: 34,
-        message: transcript ? 'Selecionando os melhores momentos pela fala e retenção...' : 'Distribuindo cortes porque a transcrição não ficou disponível...',
+        message: transcript ? 'Selecionando e validando os melhores momentos...' : 'Distribuindo cortes porque a transcrição não ficou disponível...',
       });
       const highlights = transcript
         ? await this.selectHighlights(transcript, sourceDurationSec, options)
         : this.fallbackHighlights(sourceDurationSec, options);
+
+      if (highlights.length === 0) {
+        throw new Error('Nenhum trecho atingiu a qualidade mínima. Tente um vídeo com falas mais completas ou reduza a quantidade de cortes.');
+      }
 
       const clips: SmartClipItem[] = [];
       for (let index = 0; index < highlights.length; index += 1) {
@@ -130,14 +144,26 @@ export class SmartClipsService {
         const outputFilename = `smart-clip-${index + 1}.mp4`;
         const outputPath = path.join(workDirectory, outputFilename);
         const rawVideoPath = path.join(workDirectory, `raw-${index + 1}.mp4`);
-        const duration = Math.min(Math.max(highlight.endSec - highlight.startSec, 8), sourceDurationSec - highlight.startSec);
+        const duration = Math.min(Math.max(highlight.endSec - highlight.startSec, MIN_FINAL_DURATION_SEC), sourceDurationSec - highlight.startSec);
         this.update(id, {
           status: options.audioMode === 'original' ? 'CUTTING' : 'GENERATING_AUDIO',
           progress: 42 + Math.round((index / Math.max(highlights.length, 1)) * 48),
-          message: `Produzindo corte ${index + 1} de ${highlights.length}...`,
+          message: `Produzindo e validando corte ${index + 1} de ${highlights.length}...`,
         });
 
-        const script = this.resolveScript(highlight, options, index);
+        let script = this.resolveScript(highlight, options, index);
+        if (options.audioMode === 'rewrite') {
+          const rewritten = await this.generateQualityRewrite(highlight, options.durationSec);
+          highlight.title = rewritten.title;
+          script = rewritten.script;
+        }
+        if (options.audioMode === 'custom') {
+          const customAssessment = this.assessTextQuality(script ?? '', options.durationSec, false);
+          if (!customAssessment.approved) {
+            throw new Error(`O roteiro enviado para o corte ${index + 1} foi reprovado: ${customAssessment.reasons.join(', ')}.`);
+          }
+        }
+
         await this.cutVerticalClip(sourcePath, rawVideoPath, highlight.startSec, duration, options.removeSilence && options.audioMode === 'original');
 
         if (options.audioMode === 'original') {
@@ -149,24 +175,47 @@ export class SmartClipsService {
           if (!script) throw new Error('Não foi possível criar o roteiro da nova narração.');
           const narration = await ttsService.generateSpeech({
             text: script, voice: options.voice, outputDirectory: workDirectory,
-            outputFilename: `voice-${index + 1}.mp3`, speed: 1.05,
+            outputFilename: `voice-${index + 1}.mp3`, speed: 1.02,
           });
           const audioDuration = await this.probeDuration(narration.filePath);
+          if (audioDuration < MIN_FINAL_DURATION_SEC) {
+            throw new Error(`A narração do corte ${index + 1} ficou curta demais (${this.round(audioDuration)}s).`);
+          }
           const subtitleFile = options.captions ? await this.createSubtitle(workDirectory, index, script, audioDuration) : undefined;
           await this.finishNarratedClip(rawVideoPath, outputPath, narration.filePath, subtitleFile, audioDuration);
         }
 
+        const finalDuration = await this.probeDuration(outputPath);
+        const quality = this.assessFinalClip(highlight, script, finalDuration, options, clips);
+        console.info('🧪 SMART CLIP QUALITY GATE', {
+          id, clip: index + 1, approved: quality.approved, score: quality.score,
+          finalDuration: this.round(finalDuration), reasons: quality.reasons,
+        });
+        if (!quality.approved) {
+          console.warn('🚫 SMART CLIP REJECTED', { id, clip: index + 1, reasons: quality.reasons });
+          continue;
+        }
+
         job.clipFiles.set(clipId, outputPath);
         clips.push({
-          id: clipId, order: index + 1, startSec: this.round(highlight.startSec), durationSec: this.round(duration),
+          id: clipId, order: clips.length + 1, startSec: this.round(highlight.startSec), durationSec: this.round(finalDuration),
           filename: outputFilename, downloadUrl: `/api/v1/smart-clips/${id}/clips/${clipId}/download`,
           title: highlight.title, score: highlight.score, transcript: highlight.transcript,
           script: options.audioMode === 'original' ? undefined : script, audioMode: options.audioMode,
+          qualityScore: quality.score,
         });
         this.update(id, { clips: [...clips] });
       }
 
-      this.update(id, { status: 'COMPLETED', progress: 100, message: 'Smart Clips concluídos com seleção inteligente, áudio e legendas.', clips, completedAt: new Date().toISOString() });
+      if (clips.length === 0) {
+        throw new Error('Todos os cortes foram reprovados pelo controle de qualidade. Nenhum vídeo ruim foi entregue.');
+      }
+
+      this.update(id, {
+        status: 'COMPLETED', progress: 100,
+        message: `${clips.length} Smart Clip(s) aprovado(s) pelo controle de qualidade.`,
+        clips, completedAt: new Date().toISOString(),
+      });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Falha ao processar o vídeo.';
       console.error('❌ SMART CLIPS ERROR', { id, message, error });
@@ -180,44 +229,68 @@ export class SmartClipsService {
       .join('\n').slice(0, 45_000);
     try {
       const result = await aiService.safeJson<AiHighlightsResponse>([
-        { role: 'system', content: 'Você é um editor profissional de Shorts, Reels e TikTok. Selecione momentos autossuficientes, com gancho, clareza, tensão, surpresa ou valor. Responda somente JSON.' },
-        { role: 'user', content: `Selecione exatamente ${options.clipCount} melhores trechos. Duração desejada: ${options.durationSec}s. Duração total: ${this.round(sourceDuration)}s. Modo: ${options.audioMode}. Não sobreponha trechos. Comece e termine ideias completas. Dê score 0-100. suggestedScript deve reescrever a ideia em português natural, com gancho forte e sem inventar fatos.\n\nTRANSCRIÇÃO:\n${compactTranscript}\n\nJSON: {"highlights":[{"startSec":0,"endSec":30,"title":"Título curto","score":90,"transcript":"fala original","suggestedScript":"roteiro otimizado"}]}` },
-      ], { temperature: 0.2, maxTokens: 5000 });
-      const normalized = (result.highlights ?? []).map((item) => ({
-        startSec: this.clamp(Number(item.startSec ?? 0), 0, sourceDuration - 1),
-        endSec: this.clamp(Number(item.endSec ?? 0), 1, sourceDuration),
-        title: String(item.title ?? 'Momento em destaque').trim().slice(0, 100),
-        score: this.clamp(Math.round(Number(item.score ?? 70)), 0, 100),
-        transcript: String(item.transcript ?? '').replace(/\s+/g, ' ').trim(),
-        suggestedScript: String(item.suggestedScript ?? '').replace(/\s+/g, ' ').trim(),
-      })).filter((item) => item.endSec - item.startSec >= 8).sort((a, b) => b.score - a.score);
-      const accepted: HighlightCandidate[] = [];
-      for (const candidate of normalized) {
-        const overlaps = accepted.some((item) => Math.max(item.startSec, candidate.startSec) < Math.min(item.endSec, candidate.endSec) - 2);
-        if (!overlaps) accepted.push(candidate);
-        if (accepted.length >= options.clipCount) break;
-      }
-      if (accepted.length > 0) return accepted.sort((a, b) => a.startSec - b.startSec);
+        {
+          role: 'system',
+          content: 'Você é um editor rigoroso de Shorts, Reels e TikTok. Rejeite despedidas, agradecimentos, frases soltas, introduções vazias e trechos sem ideia completa. Responda somente JSON.',
+        },
+        {
+          role: 'user',
+          content: `Selecione exatamente ${options.clipCount} melhores trechos. Duração desejada: ${options.durationSec}s. Duração total: ${this.round(sourceDuration)}s. Não sobreponha trechos. Cada trecho deve conter gancho, desenvolvimento e conclusão. Nunca selecione apenas agradecimentos, despedidas ou encerramento. Dê score realista de 0-100 e só use 75+ para trechos fortes. suggestedScript deve preservar o assunto e ter aproximadamente ${this.targetWordRange(options.durationSec).min}-${this.targetWordRange(options.durationSec).max} palavras, sem inventar fatos.\n\nTRANSCRIÇÃO:\n${compactTranscript}\n\nJSON: {"highlights":[{"startSec":0,"endSec":30,"title":"Título específico","score":85,"transcript":"fala original","suggestedScript":"roteiro otimizado"}]}`,
+        },
+      ], { temperature: 0.15, maxTokens: 5000 });
+
+      const normalized = (result.highlights ?? []).map((item) => {
+        const startSec = this.clamp(Number(item.startSec ?? 0), 0, Math.max(sourceDuration - 1, 0));
+        const endSec = this.clamp(Number(item.endSec ?? 0), 1, sourceDuration);
+        const actualTranscript = this.transcriptForRange(transcript, startSec, endSec);
+        return {
+          startSec, endSec,
+          title: String(item.title ?? 'Momento em destaque').trim().slice(0, 100),
+          score: this.clamp(Math.round(Number(item.score ?? 0)), 0, 100),
+          transcript: actualTranscript,
+          suggestedScript: String(item.suggestedScript ?? '').replace(/\s+/g, ' ').trim(),
+        };
+      }).filter((item) => item.endSec - item.startSec >= MIN_FINAL_DURATION_SEC);
+
+      return this.filterAndRankCandidates(normalized, options);
     } catch (error) {
       console.warn('⚠️ SMART CLIPS AI SELECTION FALLBACK', { error: error instanceof Error ? error.message : error });
     }
     return this.segmentHighlights(transcript, sourceDuration, options);
   }
 
+  private filterAndRankCandidates(candidates: HighlightCandidate[], options: SmartClipOptions): HighlightCandidate[] {
+    const accepted: HighlightCandidate[] = [];
+    const ranked = candidates
+      .map((candidate) => {
+        const localScore = this.heuristicScore(candidate.transcript);
+        return { ...candidate, score: Math.round(candidate.score * 0.45 + localScore * 0.55) };
+      })
+      .filter((candidate) => candidate.score >= MIN_HIGHLIGHT_SCORE)
+      .filter((candidate) => this.assessTextQuality(candidate.transcript, options.durationSec, true).approved)
+      .sort((a, b) => b.score - a.score);
+
+    for (const candidate of ranked) {
+      const overlaps = accepted.some((item) => Math.max(item.startSec, candidate.startSec) < Math.min(item.endSec, candidate.endSec) - 2);
+      const duplicate = accepted.some((item) => this.textSimilarity(item.transcript, candidate.transcript) >= 0.55);
+      if (!overlaps && !duplicate) accepted.push(candidate);
+      if (accepted.length >= options.clipCount) break;
+    }
+    return accepted.sort((a, b) => a.startSec - b.startSec);
+  }
+
   private segmentHighlights(transcript: TranscriptResult, sourceDuration: number, options: SmartClipOptions): HighlightCandidate[] {
-    const candidates = transcript.segments.map((segment, index) => {
+    const candidates = transcript.segments.map((segment) => {
       const start = segment.start;
       const end = Math.min(sourceDuration, start + options.durationSec);
-      const text = transcript.segments.slice(index).filter((item) => item.start < end).map((item) => item.text).join(' ').trim();
-      return { startSec: start, endSec: end, title: text.split(/[.!?]/)[0]?.slice(0, 80) || 'Momento em destaque', score: this.heuristicScore(text), transcript: text, suggestedScript: text };
+      const text = this.transcriptForRange(transcript, start, end);
+      return {
+        startSec: start, endSec: end,
+        title: text.split(/[.!?]/)[0]?.slice(0, 80) || 'Momento em destaque',
+        score: this.heuristicScore(text), transcript: text, suggestedScript: text,
+      };
     });
-    const selected: HighlightCandidate[] = [];
-    for (const candidate of candidates.sort((a, b) => b.score - a.score)) {
-      if (selected.some((item) => Math.abs(item.startSec - candidate.startSec) < options.durationSec * 0.7)) continue;
-      selected.push(candidate);
-      if (selected.length >= options.clipCount) break;
-    }
-    return selected.sort((a, b) => a.startSec - b.startSec);
+    return this.filterAndRankCandidates(candidates, options);
   }
 
   private fallbackHighlights(sourceDuration: number, options: SmartClipOptions): HighlightCandidate[] {
@@ -230,6 +303,33 @@ export class SmartClipsService {
     });
   }
 
+  private async generateQualityRewrite(highlight: HighlightCandidate, durationSec: number): Promise<{ title: string; script: string }> {
+    const range = this.targetWordRange(durationSec);
+    let lastReasons: string[] = [];
+    for (let attempt = 1; attempt <= MAX_REWRITE_ATTEMPTS; attempt += 1) {
+      const result = await aiService.safeJson<AiRewriteResponse>([
+        {
+          role: 'system',
+          content: 'Você transforma uma fala real em um roteiro curto, fiel e envolvente. Não invente fatos. Não escreva despedidas ou agradecimentos. Responda somente JSON.',
+        },
+        {
+          role: 'user',
+          content: `Crie um roteiro de aproximadamente ${durationSec} segundos, entre ${range.min} e ${range.max} palavras. Precisa ter: gancho específico na primeira frase, desenvolvimento claro e fechamento forte. Preserve estritamente o assunto da transcrição. Evite frases genéricas.\n\nTRANSCRIÇÃO ORIGINAL:\n${highlight.transcript}\n\n${lastReasons.length ? `A tentativa anterior falhou por: ${lastReasons.join(', ')}.` : ''}\n\nJSON: {"title":"Título específico","script":"Roteiro completo"}`,
+        },
+      ], { temperature: attempt === 1 ? 0.35 : 0.2, maxTokens: 1200 });
+      const script = String(result.script ?? '').replace(/\s+/g, ' ').trim();
+      const title = String(result.title ?? highlight.title).replace(/\s+/g, ' ').trim().slice(0, 100);
+      const assessment = this.assessTextQuality(script, durationSec, false);
+      if (assessment.approved && this.textSimilarity(script, highlight.transcript) >= 0.12) {
+        return { title: title || highlight.title, script };
+      }
+      lastReasons = [...assessment.reasons];
+      if (this.textSimilarity(script, highlight.transcript) < 0.12) lastReasons.push('roteiro perdeu o assunto da transcrição');
+      console.warn('🔁 SMART CLIP SCRIPT RETRY', { attempt, reasons: lastReasons });
+    }
+    throw new Error(`A IA não conseguiu criar um roteiro com qualidade: ${lastReasons.join(', ')}.`);
+  }
+
   private resolveScript(highlight: HighlightCandidate, options: SmartClipOptions, index: number): string | undefined {
     if (options.audioMode === 'original') return undefined;
     if (options.audioMode === 'custom') {
@@ -237,6 +337,69 @@ export class SmartClipsService {
       return parts[index] ?? options.customScript?.trim();
     }
     return highlight.suggestedScript || highlight.transcript;
+  }
+
+  private assessFinalClip(highlight: HighlightCandidate, script: string | undefined, finalDuration: number, options: SmartClipOptions, existing: SmartClipItem[]): QualityAssessment {
+    const reasons: string[] = [];
+    const text = options.audioMode === 'original' ? highlight.transcript : script ?? '';
+    const textAssessment = this.assessTextQuality(text, options.durationSec, options.audioMode === 'original');
+    reasons.push(...textAssessment.reasons);
+    if (finalDuration < MIN_FINAL_DURATION_SEC) reasons.push(`vídeo final com apenas ${this.round(finalDuration)}s`);
+    if (finalDuration < Math.min(options.durationSec * 0.55, MIN_FINAL_DURATION_SEC)) reasons.push('duração muito abaixo da solicitada');
+    if (existing.some((clip) => this.textSimilarity(clip.script || clip.transcript, text) >= 0.55)) reasons.push('conteúdo repetido em relação a outro corte');
+    const durationScore = this.clamp(Math.round((finalDuration / Math.max(options.durationSec, MIN_FINAL_DURATION_SEC)) * 100), 0, 100);
+    const score = Math.round(textAssessment.score * 0.75 + durationScore * 0.25);
+    return { approved: score >= MIN_QUALITY_SCORE && reasons.length === 0, score, reasons };
+  }
+
+  private assessTextQuality(text: string, durationSec: number, originalAudio: boolean): QualityAssessment {
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    const words = normalized.split(/\s+/).filter(Boolean).length;
+    const range = this.targetWordRange(durationSec);
+    const reasons: string[] = [];
+    if (!normalized) reasons.push('texto vazio');
+    if (FAREWELL_PATTERN.test(normalized)) reasons.push('trecho de despedida ou agradecimento');
+    if (WEAK_FILLER_PATTERN.test(normalized) && words < range.min) reasons.push('fala de preenchimento sem conteúdo suficiente');
+    const minimumWords = originalAudio ? Math.max(18, Math.floor(range.min * 0.55)) : range.min;
+    if (words < minimumWords) reasons.push(`texto curto demais: ${words} palavras`);
+    if (!/[.!?]/.test(normalized) && words < 35) reasons.push('ideia incompleta');
+    const uniqueRatio = this.uniqueWordRatio(normalized);
+    if (words >= 12 && uniqueRatio < 0.42) reasons.push('texto repetitivo');
+    let score = 100;
+    score -= reasons.length * 22;
+    if (/[?!]/.test(normalized.slice(0, 140))) score += 4;
+    if (/\b(mas|porém|porque|então|resultado|problema|descobri|aconteceu|verdade)\b/i.test(normalized)) score += 5;
+    return { approved: reasons.length === 0 && score >= MIN_QUALITY_SCORE, score: this.clamp(score, 0, 100), reasons };
+  }
+
+  private transcriptForRange(transcript: TranscriptResult, start: number, end: number): string {
+    return transcript.segments
+      .filter((segment) => segment.end > start && segment.start < end)
+      .map((segment) => segment.text)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private targetWordRange(durationSec: number): { min: number; max: number } {
+    return {
+      min: Math.max(24, Math.floor(durationSec * 1.75)),
+      max: Math.max(34, Math.ceil(durationSec * 2.65)),
+    };
+  }
+
+  private uniqueWordRatio(text: string): number {
+    const words = text.toLowerCase().replace(/[^a-zà-ú0-9\s]/gi, ' ').split(/\s+/).filter((word) => word.length > 2);
+    return words.length ? new Set(words).size / words.length : 0;
+  }
+
+  private textSimilarity(first: string, second: string): number {
+    const firstWords = new Set(first.toLowerCase().replace(/[^a-zà-ú0-9\s]/gi, ' ').split(/\s+/).filter((word) => word.length > 3));
+    const secondWords = new Set(second.toLowerCase().replace(/[^a-zà-ú0-9\s]/gi, ' ').split(/\s+/).filter((word) => word.length > 3));
+    if (!firstWords.size || !secondWords.size) return 0;
+    let intersection = 0;
+    for (const word of firstWords) if (secondWords.has(word)) intersection += 1;
+    return intersection / new Set([...firstWords, ...secondWords]).size;
   }
 
   private async createSubtitle(workDirectory: string, index: number, text: string, duration: number): Promise<string> {
@@ -273,7 +436,7 @@ export class SmartClipsService {
     args.push(
       '-map', '0:v:0', '-map', '1:a:0',
       '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '24', '-threads', '2',
-      '-c:a', 'aac', '-b:a', '128k', '-shortest', '-movflags', '+faststart', output,
+      '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', output,
     );
     await this.run('ffmpeg', args);
   }
@@ -296,23 +459,13 @@ export class SmartClipsService {
       let stdout = '';
       let stderr = '';
       let settled = false;
-
       child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-      child.stderr.on('data', (chunk) => {
-        stderr = `${stderr}${chunk.toString()}`.slice(-6000);
-      });
-      child.on('error', (error) => {
-        if (settled) return;
-        settled = true;
-        reject(error);
-      });
+      child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk.toString()}`.slice(-6000); });
+      child.on('error', (error) => { if (!settled) { settled = true; reject(error); } });
       child.on('close', (code, signal) => {
         if (settled) return;
         settled = true;
-        if (code === 0) {
-          resolve(stdout);
-          return;
-        }
+        if (code === 0) { resolve(stdout); return; }
         const termination = signal ? `sinal ${signal}` : `código ${String(code)}`;
         reject(new Error(`${command} terminou com ${termination}. ${stderr.slice(-2200)}`));
       });
@@ -327,6 +480,8 @@ export class SmartClipsService {
     const words = text.split(/\s+/).filter(Boolean).length;
     if (words >= 35 && words <= 150) score += 18;
     if (text.length < 80) score -= 20;
+    if (FAREWELL_PATTERN.test(text)) score -= 55;
+    if (WEAK_FILLER_PATTERN.test(text)) score -= 12;
     return this.clamp(score, 0, 100);
   }
 
