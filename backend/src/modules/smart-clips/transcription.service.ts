@@ -38,8 +38,11 @@ export class TranscriptionService {
     }
 
     const bytes = await readFile(filePath);
+    const uploadBytes = new Uint8Array(bytes.byteLength);
+    uploadBytes.set(bytes);
+
     const form = new FormData();
-    form.append('file', new Blob([bytes]), path.basename(filePath));
+    form.append('file', new Blob([uploadBytes]), path.basename(filePath));
     form.append('model', 'whisper-large-v3-turbo');
     form.append('response_format', 'verbose_json');
     form.append('timestamp_granularities[]', 'segment');
