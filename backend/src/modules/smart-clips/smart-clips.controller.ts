@@ -29,16 +29,19 @@ export class SmartClipsController {
 
   status = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = this.getUserId(req);
-    const result = smartClipsService.get(userId, req.params.id);
+    const id = this.getRouteParam(req, 'id');
+    const result = smartClipsService.get(userId, id);
     res.json({ data: result });
   });
 
   download = asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const userId = this.getUserId(req);
+    const id = this.getRouteParam(req, 'id');
+    const clipId = this.getRouteParam(req, 'clipId');
     const filePath = await smartClipsService.getClipFile(
       userId,
-      req.params.id,
-      req.params.clipId,
+      id,
+      clipId,
     );
     res.download(filePath, path.basename(filePath));
   });
@@ -46,6 +49,12 @@ export class SmartClipsController {
   private getUserId(req: AuthenticatedRequest): string {
     if (!req.userId) throw new Error('Usuário não autenticado.');
     return req.userId;
+  }
+
+  private getRouteParam(req: Request, name: string): string {
+    const value = req.params[name];
+    if (!value) throw new Error(`Parâmetro obrigatório ausente: ${name}.`);
+    return value;
   }
 }
 
