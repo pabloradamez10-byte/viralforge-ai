@@ -115,17 +115,20 @@ export class SmartClipsService {
 
       const clips: SmartClipItem[] = [];
       for (let index = 0; index < starts.length; index += 1) {
+        const start = starts[index];
+        if (start === undefined) continue;
+
         const clipId = uuid();
         const outputFilename = `clip-${index + 1}.mp4`;
         const outputPath = path.join(workDirectory, outputFilename);
-        const duration = Math.min(clipDurationSec, sourceDurationSec - starts[index]);
+        const duration = Math.min(clipDurationSec, sourceDurationSec - start);
 
-        await this.cutVerticalClip(sourcePath, outputPath, starts[index], duration);
+        await this.cutVerticalClip(sourcePath, outputPath, start, duration);
         job.clipFiles.set(clipId, outputPath);
         clips.push({
           id: clipId,
           order: index + 1,
-          startSec: Math.round(starts[index] * 10) / 10,
+          startSec: Math.round(start * 10) / 10,
           durationSec: Math.round(duration * 10) / 10,
           filename: outputFilename,
           downloadUrl: `/api/v1/smart-clips/${id}/clips/${clipId}/download`,
@@ -204,8 +207,8 @@ export class SmartClipsService {
   }
 
   private publicJob(job: InternalSmartClipJob): SmartClipJob {
-    const { clipFiles: _clipFiles, userId: _userId, ...result } = job;
-    return { ...result, userId: job.userId };
+    const { clipFiles: _clipFiles, ...result } = job;
+    return result;
   }
 
   private safeFilename(value: string): string {
