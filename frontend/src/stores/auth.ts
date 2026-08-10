@@ -8,6 +8,7 @@ export interface User {
   name: string;
   role: 'USER' | 'ADMIN';
   plan: 'FREE' | 'PRO' | 'AGENCY' | 'ENTERPRISE';
+  accessStatus: 'PENDING' | 'APPROVED' | 'BLOCKED';
 }
 
 interface AuthState {
@@ -34,7 +35,9 @@ export const useAuth = create<AuthState>((set) => ({
     });
     if (error) throw error;
     if (!data.user) throw new Error('Não foi possível identificar a conta.');
-    set({ user: await loadUser(data.user), loading: false });
+    const user = await loadUser(data.user);
+    await requireApproved(user);
+    set({ user, loading: false });
   },
 
   async register(email, password, name) {
@@ -51,7 +54,9 @@ export const useAuth = create<AuthState>((set) => ({
     if (!data.session) {
       throw new Error('Conta criada. Confirme o e-mail recebido e depois faça login.');
     }
-    set({ user: await loadUser(data.user), loading: false });
+    const user = await loadUser(data.user);
+    await requireApproved(user);
+    set({ user, loading: false });
   },
 
   async logout() {
@@ -66,7 +71,9 @@ export const useAuth = create<AuthState>((set) => ({
     try {
       const { data, error } = await supabase.auth.getUser();
       if (error || !data.user) return set({ user: null, loading: false });
-      set({ user: await loadUser(data.user), loading: false });
+      const user = await loadUser(data.user);
+      await requireApproved(user);
+      set({ user, loading: false });
     } catch {
       set({ user: null, loading: false });
     }
@@ -76,7 +83,7 @@ export const useAuth = create<AuthState>((set) => ({
 async function loadUser(authUser: SupabaseUser): Promise<User> {
   const { data } = await supabase
     .from('profiles')
-    .select('name, role, plan')
+    .select('name, role, plan, access_status')
     .eq('id', authUser.id)
     .single();
 
@@ -88,5 +95,17 @@ async function loadUser(authUser: SupabaseUser): Promise<User> {
     name: data?.name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Usuário',
     role: data?.role === 'ADMIN' ? 'ADMIN' : 'USER',
     plan: plan && ['PRO', 'AGENCY', 'ENTERPRISE'].includes(plan) ? plan : 'FREE',
+    accessStatus: data?.access_status === 'APPROVED' || data?.access_status === 'BLOCKED'
+      ? data.access_status
+      : 'PENDING',
   } as User;
+}
+
+async function requireApproved(user: User) {
+  if (user.accessStatus === 'APPROVED') return;
+  await supabase.auth.signOut();
+  if (user.accessStatus === 'BLOCKED') {
+    throw new Error('Seu acesso foi bloqueado pelo administrador.');
+  }
+  throw new Error('Cadastro recebido. Aguarde a aprovação do administrador.');
 }

@@ -14,6 +14,7 @@ import Publications from '@/pages/Publications';
 import FacelessScripts from '@/pages/FacelessScripts';
 import SmartClips from '@/pages/SmartClips';
 import Affiliates from '@/pages/Affiliates';
+import Users from '@/pages/Users';
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -26,6 +27,11 @@ function Protected({ children }: { children: React.ReactNode }) {
     );
   if (!user) return <Navigate to="/login" state={{ from: loc }} replace />;
   return <>{children}</>;
+}
+
+function AdminOnly({ children }: { children: React.ReactNode }) {
+  const user = useAuth((state) => state.user);
+  return user?.role === 'ADMIN' ? <>{children}</> : <Navigate to="/dashboard" replace />;
 }
 
 export default function App() {
@@ -60,6 +66,7 @@ export default function App() {
           <Route path="faceless/:id" element={<FacelessGenerator />} />
           <Route path="smart-clips" element={<SmartClips />} />
           <Route path="affiliates" element={<Affiliates />} />
+          <Route path="users" element={<AdminOnly><Users /></AdminOnly>} />
           <Route path="publications/:id" element={<Publications />} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
