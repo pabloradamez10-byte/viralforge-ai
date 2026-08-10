@@ -13,6 +13,7 @@ import FacelessGenerator from '@/pages/FacelessGenerator';
 import Publications from '@/pages/Publications';
 import FacelessScripts from '@/pages/FacelessScripts';
 import SmartClips from '@/pages/SmartClips';
+import Affiliates from '@/pages/Affiliates';
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="faceless/new/:videoId" element={<FacelessGenerator />} />
           <Route path="faceless/:id" element={<FacelessGenerator />} />
           <Route path="smart-clips" element={<SmartClips />} />
+          <Route path="affiliates" element={<Affiliates />} />
           <Route path="publications/:id" element={<Publications />} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
