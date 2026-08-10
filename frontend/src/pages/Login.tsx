@@ -17,7 +17,7 @@ export default function Login() {
       await login(email, password);
       nav('/dashboard');
     } catch (err: any) {
-      toast.error(err?.response?.data?.error?.message || 'Falha no login');
+      toast.error(err?.message || 'Falha no login');
     } finally {
       setLoading(false);
     }

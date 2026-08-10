@@ -18,7 +18,7 @@ export default function Register() {
       await register(email, password, name);
       nav('/dashboard');
     } catch (err: any) {
-      toast.error(err?.response?.data?.error?.message || 'Falha no cadastro');
+      toast.error(err?.message || 'Falha no cadastro');
     } finally {
       setLoading(false);
     }

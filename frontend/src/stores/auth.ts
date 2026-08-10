@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { api, clearTokens, setTokens } from '@/lib/api';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase';
 
 export interface User {
   id: string;
@@ -27,75 +28,34 @@ export const useAuth = create<AuthState>((set) => ({
   loading: true,
 
   async login(email, password) {
-    const normalizedEmail = email.toLowerCase().trim();
-
-    const response = await api.post('/auth/login', {
-      email: normalizedEmail,
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.toLowerCase().trim(),
       password,
     });
-
-    const result = response.data?.data ?? response.data;
-
-    const {
-      user,
-      accessToken,
-      refreshToken,
-    } = result;
-
-    if (!user || !accessToken || !refreshToken) {
-      throw new Error('O servidor não retornou os tokens de autenticação.');
-    }
-
-    setTokens(accessToken, refreshToken);
-
-    set({
-      user,
-      loading: false,
-    });
+    if (error) throw error;
+    if (!data.user) throw new Error('Não foi possível identificar a conta.');
+    set({ user: await loadUser(data.user), loading: false });
   },
 
   async register(email, password, name) {
-    const response = await api.post('/auth/register', {
+    const { data, error } = await supabase.auth.signUp({
       email: email.toLowerCase().trim(),
       password,
-      name: name.trim(),
+      options: {
+        data: { name: name.trim() },
+        emailRedirectTo: `${window.location.origin}/dashboard`,
+      },
     });
-
-    const result = response.data?.data ?? response.data;
-
-    const {
-      user,
-      accessToken,
-      refreshToken,
-    } = result;
-
-    if (!user || !accessToken || !refreshToken) {
-      throw new Error('O servidor não retornou os tokens de autenticação.');
+    if (error) throw error;
+    if (!data.user) throw new Error('Não foi possível criar a conta.');
+    if (!data.session) {
+      throw new Error('Conta criada. Confirme o e-mail recebido e depois faça login.');
     }
-
-    setTokens(accessToken, refreshToken);
-
-    set({
-      user,
-      loading: false,
-    });
+    set({ user: await loadUser(data.user), loading: false });
   },
 
   async logout() {
-    const refreshToken = localStorage.getItem('vf_refresh');
-
-    try {
-      if (refreshToken) {
-        await api.post('/auth/logout', {
-          refreshToken,
-        });
-      }
-    } catch {
-      // Limpa o acesso local mesmo que o backend esteja indisponível.
-    }
-
-    clearTokens();
-
+    await supabase.auth.signOut();
     set({
       user: null,
       loading: false,
@@ -103,32 +63,30 @@ export const useAuth = create<AuthState>((set) => ({
   },
 
   async fetchMe() {
-    const accessToken = localStorage.getItem('vf_access');
-
-    if (!accessToken) {
-      set({
-        user: null,
-        loading: false,
-      });
-
-      return;
-    }
-
     try {
-      const response = await api.get('/auth/me');
-      const user = response.data?.data ?? response.data;
-
-      set({
-        user,
-        loading: false,
-      });
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) return set({ user: null, loading: false });
+      set({ user: await loadUser(data.user), loading: false });
     } catch {
-      clearTokens();
-
-      set({
-        user: null,
-        loading: false,
-      });
+      set({ user: null, loading: false });
     }
   },
 }));
+
+async function loadUser(authUser: SupabaseUser): Promise<User> {
+  const { data } = await supabase
+    .from('profiles')
+    .select('name, role, plan')
+    .eq('id', authUser.id)
+    .single();
+
+  const plan = data?.plan;
+
+  return {
+    id: authUser.id,
+    email: authUser.email ?? '',
+    name: data?.name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'Usuário',
+    role: data?.role === 'ADMIN' ? 'ADMIN' : 'USER',
+    plan: plan && ['PRO', 'AGENCY', 'ENTERPRISE'].includes(plan) ? plan : 'FREE',
+  } as User;
+}
