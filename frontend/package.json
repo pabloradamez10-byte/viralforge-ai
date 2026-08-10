@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.16",
+    "@supabase/supabase-js": "^2.55.0",
     "axios": "^1.7.7",
     "clsx": "^2.1.1",
     "framer-motion": "^11.11.9",

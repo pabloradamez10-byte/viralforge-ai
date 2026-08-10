@@ -18,7 +18,7 @@ const emptyForm: AffiliateProductInput = {
 };
 
 function apiError(error: any) {
-  return error?.response?.data?.error?.message || 'Não foi possível concluir a operação.';
+  return error?.message || 'Não foi possível concluir a operação.';
 }
 
 export default function Affiliates() {
