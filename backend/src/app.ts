@@ -28,6 +28,7 @@ import { facelessRoutes } from './modules/faceless/faceless.routes.js';
 import { publicationsRoutes } from './modules/publications/publications.routes.js';
 import { videoRenderRoutes } from './modules/video-render/video-render.routes.js';
 import { smartClipsRoutes } from './modules/smart-clips/smart-clips.routes.js';
+import { affiliateProductsRoutes } from './modules/affiliate-products/affiliate-products.routes.js';
 
 const DEPLOYED_FRONTEND_ORIGINS = [
   'https://viralforge-ai-five.vercel.app',
@@ -197,6 +198,7 @@ export function createApp() {
   v1.use('/faceless', facelessRoutes);
   v1.use('/publications', publicationsRoutes);
   v1.use('/smart-clips', smartClipsRoutes);
+  v1.use('/affiliate-products', affiliateProductsRoutes);
 
   v1.use(
     '/video-renders',
