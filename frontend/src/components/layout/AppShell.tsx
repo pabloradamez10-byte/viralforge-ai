@@ -14,6 +14,7 @@ import {
   ShoppingBag,
   Menu,
   X,
+  Users as UsersIcon,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -36,7 +37,7 @@ export default function AppShell() {
   const navigation = (onNavigate?: () => void) => (
     <>
       <div className="px-3 py-4 space-y-1">
-        {nav.map((n) => (
+        {[...nav, ...(user?.role === 'ADMIN' ? [{ to: '/users', label: 'Usuários', icon: UsersIcon }] : [])].map((n) => (
           <NavLink
             key={n.to}
             to={n.to}
