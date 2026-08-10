@@ -74,8 +74,36 @@ model User {
   apiKeys         UserApiKey[]
   auditLogs       AuditLog[]
   facelessScripts FacelessScript[]
+  affiliateProducts AffiliateProduct[]
 
   @@map("users")
+}
+
+// ─────────────────────────── Affiliate Products ───────────────────────────
+
+model AffiliateProduct {
+  id             String   @id @default(uuid()) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  platform       String   @default("SHOPEE")
+  title          String
+  productUrl     String   @map("product_url")
+  affiliateUrl   String?  @map("affiliate_url")
+  imageUrl       String?  @map("image_url")
+  category       String?
+  price          Decimal? @db.Decimal(12, 2)
+  commissionRate Decimal? @map("commission_rate") @db.Decimal(5, 2)
+  salesCount     Int      @default(0) @map("sales_count")
+  rating         Float?
+  benefits       String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productUrl])
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("affiliate_products")
 }
 
 model RefreshToken {
